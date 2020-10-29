@@ -11,6 +11,11 @@ Description
 
 A longer description of your project goes here...
 
+Notes for myself
+===========
+pytochlightning template:
+https://github.com/PyTorchLightning/deep-learning-project-template
+
 
 Note
 ====
