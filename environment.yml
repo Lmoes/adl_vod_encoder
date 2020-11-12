@@ -1,0 +1,21 @@
+name: adl_vod_encoder
+channels:
+  - defaults
+  - anaconda
+  - conda-forge
+  - pytorch
+dependencies:
+  - python=3.6
+  - numpy
+  - pandas
+  - matplotlib
+  - scipy
+  - xarray
+  - dask
+  - pytorch=1.7
+  - pytorch-lightning
+  - torchvision
+  - pip
+  - pip:
+      - sklearn
+      - smecv_grid
