@@ -26,7 +26,7 @@ class VodDataset(Dataset):
     def __init__(self, in_path):
         self.da = xr.open_dataarray(in_path)
         da = self.da[self.da['time.year'] > 1987]
-        self.tslocs = ~da.isnull().any('time')
+        self.tslocs = ~da.isnull().all('time')
         self.data = da.values[:, self.tslocs].T.astype(np.float32)
         self.time = da['time']
         self.sample_dim = self.data.shape[1]
@@ -51,6 +51,11 @@ class VodDataset(Dataset):
         pass
 
 
+def calc_rsquared(a, b):
+    vx = a - torch.mean(a)
+    vy = b - torch.mean(b)
+    return torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2)) * torch.sqrt(torch.sum(vy ** 2)))
+
 class OurModel(pl.LightningModule):
     """
     Minimalistic autoencoder. Only the encoding layer, nothing else. Cant handle missing values.
@@ -72,6 +77,7 @@ class OurModel(pl.LightningModule):
         self.dataset_train, self.dataset_val = random_split(dataset, [trainsize, valsize])
 
     def forward(self, x):
+        x[x != x] = 0.
         encoding = self.encoder(x)
         return encoding
 
@@ -84,10 +90,12 @@ class OurModel(pl.LightningModule):
 
     def training_step(self, batch, batch_nb):
         x, y = batch
+        inputnans = x != x
         x = x.view(x.size(0), -1)
         encoding = self(x)
         x_hat = self.decoder(encoding)
-        loss = F.mse_loss(x_hat, x)
+        loss = F.mse_loss(x_hat[~inputnans], x[~inputnans])
+        # loss = -calc_rsquared(x_hat[~inputnans], x[~inputnans])
         return loss
 
     def val_dataloader(self):
@@ -96,25 +104,21 @@ class OurModel(pl.LightningModule):
 
     def validation_step(self, batch, batch_nb):
         x, y = batch
+        inputnans = x != x
         x = x.view(x.size(0), -1)
         encoding = self(x)
         x_hat = self.decoder(encoding)
-        loss = F.mse_loss(x_hat, x)
-        return loss
+        loss = F.mse_loss(x_hat[~inputnans], x[~inputnans])
+        # loss = -calc_rsquared(x_hat[~inputnans], x[~inputnans])
 
-    def validation_epoch_end(self, outputs):
-        val_loss_mean = sum(outputs) / len(outputs)
-        # show val_acc in progress bar but only log val_loss
-        results = {'progress_bar': {'val_loss': val_loss_mean.item()}, 'log': {'val_loss': val_loss_mean.item()},
-                   'val_loss': val_loss_mean.item()}
-        return results
+        self.log('val_loss', loss)
 
     
 if __name__ == "__main__":
     in_path = '/data-write/USERS/lmoesing/vod_encoder/data/v01_erafrozen_k_monthly.nc'
     model_save_path = '/data-write/USERS/lmoesing/vod_encoder/models/model0.pt'
     encodings_save_path = '/data-write/USERS/lmoesing/vod_encoder/encodings/encoding0.nc'
-    mode = 'load'
+    mode = 'train'
     try:
         os.makedirs(os.path.dirname(model_save_path))
     except FileExistsError:
