@@ -15,6 +15,9 @@ from torch.utils.data import DataLoader, Dataset
 import pytorch_lightning as pl
 from torch.utils.data import random_split
 from pytorch_lightning.callbacks import EarlyStopping
+import scipy.cluster.hierarchy as shc
+import matplotlib.pyplot as plt
+from kmeans_pytorch import kmeans
 
 
 class VodDataset(Dataset):
@@ -30,6 +33,7 @@ class VodDataset(Dataset):
         self.data = da.values[:, self.tslocs].T.astype(np.float32)
         self.time = da['time']
         self.sample_dim = self.data.shape[1]
+        self.out_da_list = []
 
     def __getitem__(self, index):
         return self.data[index], self.data[index]
@@ -37,24 +41,34 @@ class VodDataset(Dataset):
     def __len__(self):
         return self.data.shape[0]
 
-    def save_encodings(self, encodings, fname):
+    def add_encodings(self, encodings):
+
+        encoding_dim = encodings.shape[1]
+        coords = {'latent_variable': np.arange(encoding_dim), **{c: self.da.coords[c] for c in ['lat', 'lon']}}
+        da = xr.DataArray(np.nan, coords, ['latent_variable', 'lat', 'lon'], 'encoding')
+        da.values[:, self.tslocs] = encodings.T
+        self.out_da_list.append(da)
+
+    def add_clusteridx(self, cluster_idx):
+        coords = {c: self.da.coords[c] for c in ['lat', 'lon']}
+        da = xr.DataArray(np.nan, coords, ['lat', 'lon'], 'cluster_idx')
+        da.values[self.tslocs] = cluster_idx
+        self.out_da_list.append(da)
+
+    def flush_outputs(self, fname):
         try:
             os.makedirs(os.path.dirname(fname))
         except FileExistsError:
             pass
-
-        encoding_dim = encodings.shape[1]
-        coords = {'encoding': np.arange(encoding_dim), **{c: self.da.coords[c] for c in ['lat', 'lon']}}
-        da = xr.DataArray(np.nan, coords, ['encoding', 'lat', 'lon'])
-        da.values[:, self.tslocs] = encodings.T
-        da.to_netcdf(fname)
-        pass
+        ds = xr.merge(self.out_da_list)
+        ds.to_netcdf(fname)
 
 
 def calc_rsquared(a, b):
     vx = a - torch.mean(a)
     vy = b - torch.mean(b)
     return torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2)) * torch.sqrt(torch.sum(vy ** 2)))
+
 
 class OurModel(pl.LightningModule):
     """
@@ -95,7 +109,6 @@ class OurModel(pl.LightningModule):
         encoding = self(x)
         x_hat = self.decoder(encoding)
         loss = F.mse_loss(x_hat[~inputnans], x[~inputnans])
-        # loss = -calc_rsquared(x_hat[~inputnans], x[~inputnans])
         return loss
 
     def val_dataloader(self):
@@ -109,8 +122,6 @@ class OurModel(pl.LightningModule):
         encoding = self(x)
         x_hat = self.decoder(encoding)
         loss = F.mse_loss(x_hat[~inputnans], x[~inputnans])
-        # loss = -calc_rsquared(x_hat[~inputnans], x[~inputnans])
-
         self.log('val_loss', loss)
 
     
@@ -118,7 +129,8 @@ if __name__ == "__main__":
     in_path = '/data-write/USERS/lmoesing/vod_encoder/data/v01_erafrozen_k_monthly.nc'
     model_save_path = '/data-write/USERS/lmoesing/vod_encoder/models/model0.pt'
     encodings_save_path = '/data-write/USERS/lmoesing/vod_encoder/encodings/encoding0.nc'
-    mode = 'train'
+    mode = 'load'
+    cluster = True
     try:
         os.makedirs(os.path.dirname(model_save_path))
     except FileExistsError:
@@ -140,5 +152,10 @@ if __name__ == "__main__":
         trainer.fit(model)
         save(model.state_dict(), model_save_path)
 
-    encodings = model(torch.from_numpy(ds.data)).detach().numpy()
-    ds.save_encodings(encodings, encodings_save_path)
+    encodings = model(torch.from_numpy(ds.data))
+
+    ds.add_encodings(encodings.detach().numpy())
+
+    cluster_ids_x, cluster_centers = kmeans(encodings, 10)
+    ds.add_clusteridx(cluster_ids_x.detach().numpy())
+    ds.flush_outputs(encodings_save_path)
