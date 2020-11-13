@@ -8,7 +8,8 @@ https://towardsdatascience.com/pytorch-lightning-machine-learning-zero-to-hero-i
 import os
 import xarray as xr
 import numpy as np
-from torch import nn, optim, rand, reshape, save
+import torch
+from torch import nn, optim, rand, reshape, save, load, from_numpy
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 import pytorch_lightning as pl
@@ -23,9 +24,10 @@ class VodDataset(Dataset):
         - only ts without any nan value
     """
     def __init__(self, in_path):
-        da = xr.open_dataarray(in_path)
-        da = da[da['time.year'] > 1987]
-        self.data = da.values[:, ~da.isnull().any('time')].T.astype(np.float32)
+        self.da = xr.open_dataarray(in_path)
+        da = self.da[self.da['time.year'] > 1987]
+        self.tslocs = ~da.isnull().any('time')
+        self.data = da.values[:, self.tslocs].T.astype(np.float32)
         self.time = da['time']
         self.sample_dim = self.data.shape[1]
 
@@ -35,6 +37,19 @@ class VodDataset(Dataset):
     def __len__(self):
         return self.data.shape[0]
 
+    def save_encodings(self, encodings, fname):
+        try:
+            os.makedirs(os.path.dirname(fname))
+        except FileExistsError:
+            pass
+
+        encoding_dim = encodings.shape[1]
+        coords = {'encoding': np.arange(encoding_dim), **{c: self.da.coords[c] for c in ['lat', 'lon']}}
+        da = xr.DataArray(np.nan, coords, ['encoding', 'lat', 'lon'])
+        da.values[:, self.tslocs] = encodings.T
+        da.to_netcdf(fname)
+        pass
+
 
 class OurModel(pl.LightningModule):
     """
@@ -43,8 +58,13 @@ class OurModel(pl.LightningModule):
 
     def __init__(self, dataset, encoding_dim=4, train_size_frac=0.7):
         super(OurModel, self).__init__()
-        self.linear = nn.Linear(dataset.sample_dim, encoding_dim)
-        self.linear2 = nn.Linear(encoding_dim, dataset.sample_dim)
+
+        self.encoder = nn.Sequential(
+            nn.Linear(dataset.sample_dim, encoding_dim)
+        )
+        self.decoder = nn.Sequential(
+            nn.Linear(encoding_dim, dataset.sample_dim)
+        )
         self.lr = 0.001
         self.batch_size = 512
         trainsize = int(len(ds)*train_size_frac)
@@ -52,9 +72,8 @@ class OurModel(pl.LightningModule):
         self.dataset_train, self.dataset_val = random_split(dataset, [trainsize, valsize])
 
     def forward(self, x):
-        encoding = self.linear(x)
-        output = self.linear2(encoding)
-        return output
+        encoding = self.encoder(x)
+        return encoding
 
     def configure_optimizers(self):
         return optim.Adam(self.parameters(), lr=self.lr)
@@ -65,8 +84,11 @@ class OurModel(pl.LightningModule):
 
     def training_step(self, batch, batch_nb):
         x, y = batch
-        loss = F.mse_loss(self(x), y)
-        return {'loss': loss, 'log': {'train_loss': loss}}
+        x = x.view(x.size(0), -1)
+        encoding = self(x)
+        x_hat = self.decoder(encoding)
+        loss = F.mse_loss(x_hat, x)
+        return loss
 
     def val_dataloader(self):
         loader = DataLoader(self.dataset_val, batch_size=self.batch_size, shuffle=False)
@@ -74,11 +96,14 @@ class OurModel(pl.LightningModule):
 
     def validation_step(self, batch, batch_nb):
         x, y = batch
-        loss = F.mse_loss(self(x), y)
-        return {'val_loss': loss, 'log': {'val_loss': loss}}
+        x = x.view(x.size(0), -1)
+        encoding = self(x)
+        x_hat = self.decoder(encoding)
+        loss = F.mse_loss(x_hat, x)
+        return loss
 
     def validation_epoch_end(self, outputs):
-        val_loss_mean = sum([o['val_loss'] for o in outputs]) / len(outputs)
+        val_loss_mean = sum(outputs) / len(outputs)
         # show val_acc in progress bar but only log val_loss
         results = {'progress_bar': {'val_loss': val_loss_mean.item()}, 'log': {'val_loss': val_loss_mean.item()},
                    'val_loss': val_loss_mean.item()}
@@ -88,6 +113,8 @@ class OurModel(pl.LightningModule):
 if __name__ == "__main__":
     in_path = '/data-write/USERS/lmoesing/vod_encoder/data/v01_erafrozen_k_monthly.nc'
     model_save_path = '/data-write/USERS/lmoesing/vod_encoder/models/model0.pt'
+    encodings_save_path = '/data-write/USERS/lmoesing/vod_encoder/encodings/encoding0.nc'
+    mode = 'load'
     try:
         os.makedirs(os.path.dirname(model_save_path))
     except FileExistsError:
@@ -95,12 +122,19 @@ if __name__ == "__main__":
     ds = VodDataset(in_path)
 
     device = 'cpu'
-    early_stop_callback = EarlyStopping(monitor='val_loss', min_delta=0.00, patience=5, verbose=True, mode='auto')
     model = OurModel(ds, 4).to(device)
-    trainer = pl.Trainer(max_epochs=100, min_epochs=1, auto_lr_find=False, auto_scale_batch_size=False,
-                         progress_bar_refresh_rate=10,
-                         callbacks=[early_stop_callback]
-                         )
-    trainer.fit(model)
-    save(model.state_dict(), model_save_path)
 
+    if mode == 'load':
+        model.load_state_dict(load(model_save_path))
+        model.eval()
+    elif mode == 'train':
+        early_stop_callback = EarlyStopping(monitor='val_loss', min_delta=0.00, patience=5, verbose=True, mode='auto')
+        trainer = pl.Trainer(max_epochs=100, min_epochs=1, auto_lr_find=False, auto_scale_batch_size=False,
+                             progress_bar_refresh_rate=10,
+                             callbacks=[early_stop_callback]
+                             )
+        trainer.fit(model)
+        save(model.state_dict(), model_save_path)
+
+    encodings = model(torch.from_numpy(ds.data)).detach().numpy()
+    ds.save_encodings(encodings, encodings_save_path)
