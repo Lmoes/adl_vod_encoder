@@ -24,12 +24,14 @@ class VodDataset(Dataset):
     """
     VOD dataset. Current limitations:
         - only post 1987 as it is incomplete
-        - only ts without any nan value
     """
-    def __init__(self, in_path):
+    def __init__(self, in_path, nonans=False):
         self.da = xr.open_dataarray(in_path)
         da = self.da[self.da['time.year'] > 1987]
-        self.tslocs = ~da.isnull().all('time')
+        if nonans:
+            self.tslocs = ~da.isnull().any('time')
+        else:
+            self.tslocs = ~da.isnull().all('time')
         self.data = da.values[:, self.tslocs].T.astype(np.float32)
         self.time = da['time']
         self.sample_dim = self.data.shape[1]
@@ -70,6 +72,24 @@ def calc_rsquared(a, b):
     return torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2)) * torch.sqrt(torch.sum(vy ** 2)))
 
 
+class Reshape(pl.LightningModule):
+
+    def __init__(self, shape):
+        super(Reshape, self).__init__()
+        self.shape = shape
+
+    def forward(self, x):
+        return x.reshape(*self.shape)
+
+
+class Squeeze(pl.LightningModule):
+
+    def __init__(self):
+        super(Squeeze, self).__init__()
+
+    def forward(self, x):
+        return x.squeeze()
+
 class OurModel(pl.LightningModule):
     """
     Minimalistic autoencoder. Only the encoding layer, nothing else. Cant handle missing values.
@@ -78,11 +98,22 @@ class OurModel(pl.LightningModule):
     def __init__(self, dataset, encoding_dim=4, train_size_frac=0.7):
         super(OurModel, self).__init__()
 
+        conv1_width = 7
+        conv1_nfeatures = 32
         self.encoder = nn.Sequential(
-            nn.Linear(dataset.sample_dim, encoding_dim)
+            nn.Conv1d(1, conv1_nfeatures, conv1_width, stride=1, padding_mode='circular'),
+            nn.BatchNorm1d(conv1_nfeatures),
+            nn.Flatten(),
+            nn.Linear((dataset.sample_dim - conv1_width + 1) * conv1_nfeatures, encoding_dim)
         )
         self.decoder = nn.Sequential(
-            nn.Linear(encoding_dim, dataset.sample_dim)
+            nn.Linear(encoding_dim, (dataset.sample_dim - conv1_width + 1) * conv1_nfeatures),
+            Reshape((-1, conv1_nfeatures, (dataset.sample_dim - conv1_width + 1))),
+            nn.BatchNorm1d(conv1_nfeatures),
+            nn.ConvTranspose1d(conv1_nfeatures, 1, conv1_width),
+            Squeeze()
+
+            # nn.BatchNorm1d(conv1_nfeatures)
         )
         self.lr = 0.001
         self.batch_size = 512
@@ -92,7 +123,11 @@ class OurModel(pl.LightningModule):
 
     def forward(self, x):
         x[x != x] = 0.
-        encoding = self.encoder(x)
+        encoding = self.encoder(x[:, None])
+        # a = nn.Linear(4, 32*(384-7+1))(encoding)
+        # b = torch.reshape(a, (512, 32, (384-7+1)))
+        # c = nn.ConvTranspose1d(32, 1, 7)(b)
+        # d = torch.squeeze(c)
         return encoding
 
     def configure_optimizers(self):
@@ -107,6 +142,7 @@ class OurModel(pl.LightningModule):
         inputnans = x != x
         x = x.view(x.size(0), -1)
         encoding = self(x)
+
         x_hat = self.decoder(encoding)
         loss = F.mse_loss(x_hat[~inputnans], x[~inputnans])
         return loss
@@ -126,10 +162,10 @@ class OurModel(pl.LightningModule):
 
     
 if __name__ == "__main__":
-    in_path = '/data-write/USERS/lmoesing/vod_encoder/data/v01_erafrozen_k_monthly.nc'
+    in_path = '/data-write/USERS/lmoesing/vod_encoder/data/v01_erafrozen_k_weekly.nc'
     model_save_path = '/data-write/USERS/lmoesing/vod_encoder/models/model0.pt'
     encodings_save_path = '/data-write/USERS/lmoesing/vod_encoder/encodings/encoding0.nc'
-    mode = 'load'
+    mode = 'train'
     cluster = True
     try:
         os.makedirs(os.path.dirname(model_save_path))
