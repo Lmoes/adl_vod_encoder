@@ -9,7 +9,7 @@ import os
 if __name__ == "__main__":
 
     in_path = '/data-write/RADAR/vod_merged/v01_erafrozen/1.0/data/vod_K/merge_passive_vod_K_imgs'
-    out_path = '/data-write/USERS/lmoesing/vod_encoder/data/v01_erafrozen_k_monthly.nc'
+    out_path = '/data-write/USERS/lmoesing/vod_encoder/data/v01_erafrozen_k_weekly.nc'
     fnames = list(Path(in_path).rglob('*.nc'))
 
     def preprocess(ds):
@@ -20,7 +20,7 @@ if __name__ == "__main__":
                            preprocess=preprocess
                            )
     da = da.sortby('time')
-    da_resampled = da.resample(time='1M').mean()
+    da_resampled = da.resample(time='1W').mean()
     try:
         os.makedirs(os.path.dirname(out_path))
     except FileExistsError:
