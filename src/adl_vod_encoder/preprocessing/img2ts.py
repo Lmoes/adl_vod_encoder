@@ -5,6 +5,8 @@ Small script to stack the images and temorally downsample the data
 import xarray as xr
 from pathlib import Path
 import os
+import pandas as pd
+
 
 if __name__ == "__main__":
 
@@ -20,12 +22,20 @@ if __name__ == "__main__":
                            preprocess=preprocess
                            )
     da = da.sortby('time')
-    da_resampled = da.resample(time='1W').mean()
+
+    da_north = da[:, da['lat'] >= 0]
+    da_south = da[:, da['lat'] < 0]
+    da_south['time'] = da_south['time'] + pd.to_timedelta('26w')
+
+    da_north = da_north.resample(time='1W').mean()
+    da_south = da_south.resample(time='1W').mean()
+
+    da_recombined = xr.concat([da_north, da_south], 'lat')
     try:
         os.makedirs(os.path.dirname(out_path))
     except FileExistsError:
         pass
 
-    da_resampled.to_netcdf(out_path)
+    da_recombined.to_netcdf(out_path)
 
 
