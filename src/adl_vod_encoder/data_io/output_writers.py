@@ -11,7 +11,6 @@ class OutputWriter(object):
         self.out_da_list = []
 
     def add_encodings(self, encodings):
-
         encoding_dim = encodings.shape[1]
         coords = {'latent_variable': np.arange(encoding_dim), **{c: self.coords[c] for c in ['lat', 'lon']}}
         da = xr.DataArray(np.nan, coords, ['latent_variable', 'lat', 'lon'], 'encoding')
@@ -23,6 +22,12 @@ class OutputWriter(object):
         da = xr.DataArray(np.nan, coords, ['lat', 'lon'], 'cluster_idx')
         da.values[self.tslocs] = cluster_idx
         self.out_da_list.append(da)
+
+    def add_ts(self, data, tsname):
+        da = xr.DataArray(np.nan, self.coords, ['time', 'lat', 'lon'], tsname)
+        da.values[:, self.tslocs] = data.T
+        self.out_da_list.append(da)
+        pass
 
     def flush(self, fname):
         try:
