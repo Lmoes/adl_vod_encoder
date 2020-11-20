@@ -10,6 +10,7 @@ class OutputWriter(object):
         self.tslocs = ds.tslocs
         self.out_da_list = []
 
+
     def add_encodings(self, encodings):
         encoding_dim = encodings.shape[1]
         coords = {'latent_variable': np.arange(encoding_dim), **{c: self.coords[c] for c in ['lat', 'lon']}}

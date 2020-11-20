@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 from torch.utils.data import random_split
+import numpy as np
 
 
 def calc_rsquared(a, b):
@@ -94,6 +95,23 @@ class BaseModel(pl.LightningModule):
         loader = DataLoader(self.dataset_val, batch_size=self.batch_size, shuffle=False, num_workers=64)
         return loader
 
+    def encode_ds(self, ds):
+        batch_encoding_list = []
+        for i, batch in enumerate(DataLoader(ds, batch_size=self.batch_size, num_workers=1)):
+            batch_encoding = self(batch[0])
+            batch_encoding_list.append(batch_encoding.detach().numpy())
+        encodings = np.concatenate(batch_encoding_list)
+        return encodings
+
+    def predict_ds(self, ds):
+        batch_ts_hat_list = []
+        for i, batch in enumerate(DataLoader(ds, batch_size=self.batch_size, num_workers=1)):
+            batch_encoding = self(batch[0])
+            batch_ts_hat = self.decoder(batch_encoding)
+            batch_ts_hat_list.append(batch_ts_hat.detach().numpy())
+        ts_hats = np.concatenate(batch_ts_hat_list)
+        return ts_hats
+
 
 class BaseConvAutoencoder(BaseModel):
     """
@@ -118,3 +136,86 @@ class BaseConvAutoencoder(BaseModel):
             nn.ConvTranspose1d(conv1_nfeatures, 1, conv1_width),
             Squeeze()
         )
+
+
+class BaseTempPrecAutoencoder(BaseModel):
+    def __init__(self, dataset, encoding_dim=4, train_size_frac=0.7, batch_size=512, lr=0.001):
+
+        super(BaseTempPrecAutoencoder, self).__init__(dataset, encoding_dim, train_size_frac, batch_size, lr)
+
+        self.temppredictor = nn.Linear(encoding_dim, 1)
+        self.precpredictor = nn.Linear(encoding_dim, 1)
+
+    def training_step(self, batch, batch_nb):
+        x, y1, y2 = batch
+        x = x.to(self.device)
+        y1 = y1.to(self.device)
+        y2 = y2.to(self.device)
+        inputnans = x != x
+        encoding = self(x)
+
+        x_hat = self.decoder(encoding)
+        t_hat = self.temppredictor(encoding)
+        p_hat = self.precpredictor(encoding)
+
+        reconstruction_loss = F.mse_loss(x_hat[~inputnans], x[~inputnans])
+        t_loss = F.mse_loss(t_hat.squeeze(), y1)
+        p_loss = F.mse_loss(p_hat.squeeze(), y2)
+        loss = reconstruction_loss + t_loss + p_loss
+        return loss
+
+    def validation_step(self, batch, batch_nb):
+        x, y1, y2 = batch
+        x = x.to(self.device)
+        y1 = y1.to(self.device)
+        y2 = y2.to(self.device)
+        inputnans = x != x
+        encoding = self(x)
+
+        x_hat = self.decoder(encoding)
+        t_hat = self.temppredictor(encoding)
+        p_hat = self.precpredictor(encoding)
+
+        reconstruction_loss = F.mse_loss(x_hat[~inputnans], x[~inputnans])
+        t_loss = F.mse_loss(t_hat.squeeze(), y1)
+        p_loss = F.mse_loss(p_hat.squeeze(), y2)
+        loss = reconstruction_loss + t_loss + p_loss
+        self.log('val_loss', loss)
+
+    def predict_ds(self, ds):
+        batch_ts_hat_list = []
+        batch_t_hat_list = []
+        batch_p_hat_list = []
+        for i, batch in enumerate(DataLoader(ds, batch_size=self.batch_size, num_workers=1)):
+
+            batch_encoding = self(batch[0])
+            batch_x_hat = self.decoder(batch_encoding)
+            batch_t_hat = self.temppredictor(batch_encoding)
+            batch_p_hat = self.precpredictor(batch_encoding)
+
+            batch_ts_hat_list.append(batch_x_hat.detach().numpy())
+            batch_t_hat_list.append(batch_t_hat.detach().numpy())
+            batch_p_hat_list.append(batch_p_hat.detach().numpy())
+        x_hats = np.concatenate(batch_ts_hat_list)
+        t_hats = np.concatenate(batch_t_hat_list)
+        p_hats = np.concatenate(batch_p_hat_list)
+        return x_hats, t_hats, p_hats
+
+    def loss_all(self, predictions, ds, origscale=False):
+
+        if origscale:
+            reconstruction_loss = np.nanmean((ds.data * ds.vod_std - predictions[0] * ds.vod_std)**2,1)
+            t_loss = (ds.tempdata * ds.temp_std - predictions[1].squeeze() * ds.temp_std)**2
+            p_loss = (ds.precdata * ds.prec_std - predictions[2].squeeze() * ds.prec_std)**2
+            loss = {'reconstruction_loss_origscale': reconstruction_loss,
+                    't_loss_origscale': t_loss,
+                    'p_loss_origscale': p_loss}
+        else:
+
+            reconstruction_loss = np.nanmean((ds.data - predictions[0])**2,1)
+            t_loss = (ds.tempdata - predictions[1].squeeze())**2
+            p_loss = (ds.precdata - predictions[2].squeeze())**2
+            loss = {'reconstruction_loss': reconstruction_loss,
+                    't_loss': t_loss,
+                    'p_loss': p_loss}
+        return loss

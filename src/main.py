@@ -13,20 +13,21 @@ from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping
 from kmeans_pytorch import kmeans
-from src.adl_vod_encoder.data_io.vod_data_loaders import VodDataset
+from src.adl_vod_encoder.data_io.vod_data_loaders import VodDataset, VodTempPrecDataset
 from src.adl_vod_encoder.data_io.output_writers import OutputWriter
-from src.adl_vod_encoder.models.autoencoders import BaseModel, BaseConvAutoencoder
+from src.adl_vod_encoder.models.autoencoders import BaseModel, BaseConvAutoencoder, BaseTempPrecAutoencoder
 
 if __name__ == "__main__":
 
     temp_resolution = 'weekly'
-    model_name = 'BaseModel'
+    model_name = 'BaseTempPrecAutoencoder'
 
     in_path = '/data/USERS/lmoesing/vod_encoder/data/v01_erafrozen_k_{}.nc'.format(temp_resolution)
+    in_path_tp = '/data/USERS/lmoesing/vod_encoder/data/era5mean.nc'
     model_save_path = '/data/USERS/lmoesing/vod_encoder/models/model_{}_{}.pt'.format(temp_resolution, model_name)
-    encodings_save_path = '/data/USERS/lmoesing/vod_encoder/output/output_{}_{}.nc'.format(temp_resolution, model_name)
+    output_save_path = '/data/USERS/lmoesing/vod_encoder/output/output_{}_{}.nc'.format(temp_resolution, model_name)
 
-    train = True
+    train = False
     device = ["cpu", 'cuda'][1]
 
     try:
@@ -34,8 +35,8 @@ if __name__ == "__main__":
     except FileExistsError:
         pass
 
-    ds = VodDataset(in_path)
-    model = BaseModel(ds, 4, batch_size=512)
+    ds = VodTempPrecDataset(in_path, in_path_tp)
+    model = BaseTempPrecAutoencoder(ds, 16, batch_size=512)
 
     if train:
         model = model.to(device)
@@ -52,21 +53,16 @@ if __name__ == "__main__":
     model.load_state_dict(load(model_save_path))
     model.eval()
     model = model.to(device)
-    batch_encoding_list = []
-    batch_ts_hat_list = []
-    for i, batch in enumerate(DataLoader(ds, batch_size=model.batch_size, num_workers=1)):
-        batch_encoding = model(batch[0])
-        batch_ts_hat = model.decoder(batch_encoding)
-        batch_encoding_list.append(batch_encoding.detach().numpy())
-        batch_ts_hat_list.append(batch_ts_hat.detach().numpy())
 
-    encodings = np.concatenate(batch_encoding_list)
-    ts_hats = np.concatenate(batch_ts_hat_list)
+    encodings = model.encode_ds(ds)
+    predictions = model.predict_ds(ds)
 
-    writer = OutputWriter(ds)
-    writer.add_ts(ds.data, 'ts_orig')
-    writer.add_ts(ts_hats, 'ts_hat')
-    writer.add_encodings(encodings)
+    ds.add_predictions(predictions)
+    ds.add_encodings(encodings)
+    loss = model.loss_all(predictions, ds)
+    loss_origscale = model.loss_all(predictions, ds, origscale=True)
+    ds.add_images(loss)
+    ds.add_images(loss_origscale)
     cluster_ids_x, cluster_centers = kmeans(torch.from_numpy(encodings), 10)
-    writer.add_clusteridx(cluster_ids_x.detach().numpy())
-    writer.flush(encodings_save_path)
+    ds.add_image(cluster_ids_x.detach().numpy(), 'cluster_ids')
+    ds.flush(output_save_path)
