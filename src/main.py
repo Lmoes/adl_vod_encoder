@@ -36,7 +36,7 @@ if __name__ == "__main__":
         pass
 
     ds = VodTempPrecDataset(in_path, in_path_tp)
-    model = BaseTempPrecAutoencoder(ds, 16, batch_size=512)
+    model = BaseTempPrecAutoencoder(ds, 4, batch_size=512)
 
     if train:
         model = model.to(device)
