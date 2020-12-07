@@ -38,8 +38,8 @@ https://github.com/Lmoesinger/adl_vod_encoder/blob/0f2faf0d3a3824bb8113e0d97e76e
 
 Currently, the setup is quite basic:
 
-    - The encoder is just one layer that has the size of the encoding dimension
-    - The decoder is just one layer that has the size of the input dimension
+- The encoder is just one layer that has the size of the encoding dimension
+- The decoder is just one layer that has the size of the input dimension
 
 I experimented around with convolutional autodencoders, but they did not perform better. I will still try to improve this.
 
