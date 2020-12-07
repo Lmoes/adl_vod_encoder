@@ -13,9 +13,9 @@ https://github.com/Lmoesinger/adl_vod_encoder/blob/main/src/adl_vod_encoder/prep
 
 The original data are daily global images with a quarter degree resolution (1440 x 720 pixels). They range from 1987-08 to 2017-06, but only 1989-01-01 to 2016-12-31 is used as having fully years makes things easier and 1988 has some issues.
 The data are downsampled to weekly values and saved in a netcdf stack. There are a few reasons for downsampling:
-   - The data has missing values, and by taking weekly means we reduce the number of gaps.
-   - The original dataset is quite large (~300GB), downsampled (and by dropping some unnecessary columns) it is at 13.3GB.
-   - The original data is quite noisy, therefore sub-weekly variations are more a result of noise rather than the climate.
+ - The data has missing values, and by taking weekly means we reduce the number of gaps.
+ - The original dataset is quite large (~300GB), downsampled (and by dropping some unnecessary columns) it is at 13.3GB.
+ - The original data is quite noisy, therefore sub-weekly variations are more a result of noise rather than the climate.
 
 Auxiliary data Preprocessing
 ===========
