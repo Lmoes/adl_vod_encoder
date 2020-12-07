@@ -11,11 +11,12 @@ VOD Preprocessing
 ===========
 https://github.com/Lmoesinger/adl_vod_encoder/blob/main/src/adl_vod_encoder/preprocessing/vodca_preprocessing.py
 
-The original data are daily global images with a quarter degree resolution (1440 x 720 pixels). They range from 1987-08 to 2017-06, but only 1989-01-01 to 2016-12-31 is used as having fully years makes things easier and 1988 has some issues.
+The original data are daily global images with a quarter degree resolution (1440 x 720 pixels). They range from 1987-08 to 2017-06, but only 1989-01-01 to 2016-12-31 is used as having fully years makes things easier and 1988 has some issues. Values on the southern hemisphere are also shifted by 6 months, so that their seasons align with the northern winter.
+
 The data are downsampled to weekly values and saved in a netcdf stack. There are a few reasons for downsampling:
-    - The data has missing values, and by taking weekly means we reduce the number of gaps.
-    - The original dataset is quite large (~300GB), downsampled (and by dropping some unnecessary columns) it is at 13.3GB.
-    - The original data is quite noisy, therefore sub-weekly variations are more a result of noise rather than the climate.
+ - The data has missing values, and by taking weekly means we reduce the number of gaps.
+ - The original dataset is quite large (~300GB), downsampled (and by dropping some unnecessary columns) it is at 13.3GB.
+ - The original data is quite noisy, therefore sub-weekly variations are more a result of noise rather than the climate.
 
 Auxiliary data Preprocessing
 ===========
@@ -37,8 +38,8 @@ https://github.com/Lmoesinger/adl_vod_encoder/blob/0f2faf0d3a3824bb8113e0d97e76e
 
 Currently, the setup is quite basic:
 
-    - The encoder is just one layer that has the size of the encoding dimension
-    - The decoder is just one layer that has the size of the input dimension
+- The encoder is just one layer that has the size of the encoding dimension
+- The decoder is just one layer that has the size of the input dimension
 
 I experimented around with convolutional autodencoders, but they did not perform better. I will still try to improve this.
 
