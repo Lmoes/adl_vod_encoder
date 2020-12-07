@@ -5,43 +5,19 @@ from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 from torch.utils.data import random_split
 import numpy as np
-
-
-def calc_rsquared(a, b):
-    vx = a - torch.mean(a)
-    vy = b - torch.mean(b)
-    return torch.sum(vx * vy) / (torch.sqrt(torch.sum(vx ** 2)) * torch.sqrt(torch.sum(vy ** 2)))
-
-
-class Reshape(pl.LightningModule):
-
-    def __init__(self, shape):
-        super(Reshape, self).__init__()
-        self.shape = shape
-
-    def forward(self, x):
-        return x.reshape(*self.shape)
-
-
-class Squeeze(pl.LightningModule):
-
-    def __init__(self):
-        super(Squeeze, self).__init__()
-
-    def forward(self, x):
-        return x.squeeze()
-
+from src.adl_vod_encoder.models.layers import Split, Squeeze, Reshape
 
 class BaseModel(pl.LightningModule):
     """
     Minimalistic autoencoder to be used for inheritance for more complex models
-    Handles missing values by setting them to 0, and masking them out for loss calculation
+    Handles missing values by setting them to 0, and masking them out for loss calculation.
+    Therefore it will still try to predict missing values, but wont be penalized for them.
 
     Base code structure from these two resources:
     https://towardsdatascience.com/pytorch-lightning-machine-learning-zero-to-hero-in-75-lines-of-code-7892f3ba83c0
     https://github.com/PyTorchLightning/deep-learning-project-template/blob/master/project/lit_autoencoder.py
-
     """
+
     def __init__(self, dataset, encoding_dim=4, train_size_frac=0.7, batch_size=512, lr=0.001):
         super(BaseModel, self).__init__()
         self.lr = lr
@@ -59,7 +35,6 @@ class BaseModel(pl.LightningModule):
         )
 
     def forward(self, x):
-        # x = x.to(self.device)
         x[x != x] = 0.
         encoding = self.encoder(x[:, None])
         return encoding
@@ -96,6 +71,12 @@ class BaseModel(pl.LightningModule):
         return loader
 
     def encode_ds(self, ds):
+        """
+        Given a dataset, encode it
+        :param ds: torch.utils.data.Dataset
+            dataset
+        :return:
+        """
         batch_encoding_list = []
         for i, batch in enumerate(DataLoader(ds, batch_size=self.batch_size, num_workers=1)):
             batch_encoding = self(batch[0])
@@ -219,3 +200,30 @@ class BaseTempPrecAutoencoder(BaseModel):
                     't_loss': t_loss,
                     'p_loss': p_loss}
         return loss
+
+
+class ConvTempPrecAutoencoder(BaseTempPrecAutoencoder):
+    def __init__(self, dataset, encoding_dim=4, train_size_frac=0.7, batch_size=512, lr=0.001):
+        super(ConvTempPrecAutoencoder, self).__init__(dataset, encoding_dim, train_size_frac, batch_size, lr)
+        auxpreddim = 8
+
+        self.temppredictor = nn.Sequential(nn.Linear(encoding_dim, auxpreddim),
+                                           nn.Linear(auxpreddim, 1))
+        self.precpredictor = nn.Sequential(nn.Linear(encoding_dim, auxpreddim),
+                                           nn.Linear(auxpreddim, 1))
+
+        conv1_width = 7
+        conv1_nfeatures = 32
+        self.encoder = nn.Sequential(
+            nn.Conv1d(1, conv1_nfeatures, conv1_width, stride=1, padding_mode='circular'),
+            nn.BatchNorm1d(conv1_nfeatures),
+            nn.Flatten(),
+            nn.Linear((dataset.sample_dim - conv1_width + 1) * conv1_nfeatures, encoding_dim)
+        )
+        self.decoder = nn.Sequential(
+            nn.Linear(encoding_dim, (dataset.sample_dim - conv1_width + 1) * conv1_nfeatures),
+            Reshape((-1, conv1_nfeatures, (dataset.sample_dim - conv1_width + 1))),
+            nn.BatchNorm1d(conv1_nfeatures),
+            nn.ConvTranspose1d(conv1_nfeatures, 1, conv1_width),
+            Squeeze()
+        )
