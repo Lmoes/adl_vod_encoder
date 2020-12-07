@@ -8,13 +8,12 @@ https://towardsdatascience.com/pytorch-lightning-machine-learning-zero-to-hero-i
 import xarray as xr
 import numpy as np
 from torch.utils.data import Dataset
-from scipy.constants.constants import zero_Celsius
 import os
 
 
 class VodDataset(Dataset):
     """
-    VOD dataset
+    VOD dataset loader, also handles writing of encoding
     """
     def __init__(self, in_path, nonans=False):
         self.da = xr.open_dataarray(in_path)
@@ -39,6 +38,12 @@ class VodDataset(Dataset):
         return self.data.shape[0]
 
     def add_encodings(self, encodings):
+        """
+        add the encodings to the output
+        :param encodings: np.array
+            an array containing the encoding
+        :return:
+        """
         encoding_dim = encodings.shape[1]
         coords = {'latent_variable': np.arange(encoding_dim), **{c: self.da.coords[c] for c in ['lat', 'lon']}}
         da = xr.DataArray(np.nan, coords, ['latent_variable', 'lat', 'lon'], 'encoding')
@@ -46,27 +51,66 @@ class VodDataset(Dataset):
         self.out_da_list.append(da)
 
     def add_image(self, data, varname):
+        """
+        add ad am image to the output
+        :param data: np.array
+            the image data
+        :param varname: string
+            name of the variable
+        :return:
+        """
         coords = {c: self.da.coords[c] for c in ['lat', 'lon']}
         da = xr.DataArray(np.nan, coords, ['lat', 'lon'], varname)
         da.values[self.tslocs] = data
         self.out_da_list.append(da)
 
     def add_images(self, images):
+        """
+        add a dict of images to the output
+        :param images: dict {name: np.arrray}
+            dict of images to be added
+        :return:
+        """
         for image in images:
             self.add_image(images[image], image)
 
     def add_ts(self, data, tsname):
+        """
+        add a time series to the output
+        :param data: np.array
+            the time series
+        :param tsname: string
+            name of the variable
+        :return:
+        """
         da = xr.DataArray(np.nan, self.da.coords, ['time', 'lat', 'lon'], tsname)
         da.values[:, self.tslocs] = data.T
         self.out_da_list.append(da)
 
     def add_predictions(self, predictions):
+        """
+        Add the predictions to the output
+        :param predictions: np.array
+            predicted vod values
+        :return:
+        """
         self.add_ts(predictions, 'vod_reconstructed')
 
     def add_attrs(self, attrs):
+        """
+        Update the attributes of the netcdf
+        :param attrs: dict
+            attribites to be added
+        :return:
+        """
         self.attrs.update(attrs)
 
     def flush(self, fname):
+        """
+        write all outputs to disk
+        :param fname: filename of output file
+        :return:
+        """
         try:
             os.makedirs(os.path.dirname(fname))
         except FileExistsError:
@@ -78,7 +122,7 @@ class VodDataset(Dataset):
 
 class VodTempPrecDataset(VodDataset):
     """
-    VOD dataset
+    Dataloader/writer that loads VOD, precipitation and temperature data
     """
     def __init__(self, in_path, temprecipath, nonans=False):
         super(VodTempPrecDataset, self).__init__(in_path, nonans)
@@ -99,6 +143,12 @@ class VodTempPrecDataset(VodDataset):
         return self.data[index], self.tempdata[index], self.precdata[index]
 
     def add_predictions(self, predictions):
+        """
+        add the vod/temp/prec preduictions to the output
+        :param predictions: tuple of np.arrays
+            (vod_predictions, temperature_predictions, precipitation_predictions), each a np.array
+        :return:
+        """
         self.add_ts(predictions[0] * self.vod_std + self.vod_mean, 'vod_reconstructed')
         self.add_image(predictions[1].flatten() * self.temp_std + self.temp_mean, 't_hat')
         self.add_image(predictions[2].flatten() * self.prec_std + self.prec_mean, 'p_hat')
