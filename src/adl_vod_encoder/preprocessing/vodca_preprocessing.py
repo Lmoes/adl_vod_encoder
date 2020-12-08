@@ -1,5 +1,5 @@
 """
-Small script to stack the images and temorally downsample the data
+Small script to stack the vodca images and temorally downsample the data
 """
 
 import xarray as xr
@@ -24,6 +24,7 @@ if __name__ == "__main__":
                            )
     da = da.sortby('time')
 
+    # shift southern data time index by half a year so the seasons align with the northern hemisphere
     da_north = da[:, da['lat'] >= 0]
     da_south = da[:, da['lat'] < 0]
     da_south['time'] = da_south['time'] + pd.to_timedelta('26w')

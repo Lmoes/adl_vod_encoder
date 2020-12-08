@@ -1,5 +1,5 @@
 """
-Small script to stack the images and temorally downsample the data
+Small script to stack the era5 images and temporally downsample the data
 """
 
 import xarray as xr
