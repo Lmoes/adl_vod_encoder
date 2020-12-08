@@ -42,9 +42,6 @@ Currently, the setup is quite basic:
 - The decoder is one linear layer -> deconvolutional layer
 
 The encoding is also used to predict precipitation and temperature using two linear layers each.
-
-
-The encoding is also used to predict precipitation and temperature using two linear layers each.
  This forces the encoding to also contain the temperature and precipitation information additional to the vod information. This also works as a regularization, since it forces the autoencoder to produce an encoding  that actually contains information and does not just map every training time series to a specific encoding.
  
 Error Metrics for neural network
