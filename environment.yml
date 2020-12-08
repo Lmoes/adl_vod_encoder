@@ -1,4 +1,4 @@
-name: adl_vod_encoder
+name: adl_vod_encoder2
 channels:
   - defaults
   - anaconda
@@ -22,3 +22,4 @@ dependencies:
       - SimpleCRF
       - kmeans-pytorch
       - pynetcf
+      - eofs
