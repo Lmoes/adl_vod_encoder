@@ -34,19 +34,18 @@ standardized(x) = (x - mean(x)) / std(x)
 
 Autoencoder architecture
 ===========
-https://github.com/Lmoesinger/adl_vod_encoder/blob/0f2faf0d3a3824bb8113e0d97e76e05b7b773e14/src/adl_vod_encoder/models/autoencoders.py#L141
+https://github.com/Lmoesinger/adl_vod_encoder/blob/main/src/adl_vod_encoder/models/autoencoders.py#L216
 
 Currently, the setup is quite basic:
 
-- The encoder is just one layer that has the size of the encoding dimension
-- The decoder is just one layer that has the size of the input dimension
+- The encoder is one Conv layer -> linear layer
+- The decoder is one linear layer -> deconvolutional layer
+
+The encoding is also used to predict precipitation and temperature using two linear layers each.
 
 
-Additionally, the network also tries to predict the mean precipitation and mean temperature.
- This is mostly done as a regularization, since it forces the autoencoder to produce an encoding
- layer that actually contains information and does not just map every training time series to a specific encoding.
- This is currently done also just with one linear layer. In the future I will experiment with more layers, as the
- temperature prediction is quite poor currently.
+The encoding is also used to predict precipitation and temperature using two linear layers each.
+ This forces the encoding to also contain the temperature and precipitation information additional to the vod information. This also works as a regularization, since it forces the autoencoder to produce an encoding  that actually contains information and does not just map every training time series to a specific encoding.This is currently done also just with one linear layer. In the future I will experiment with more layers, as the temperature prediction is quite poor currently.
 
 
 Error Metrics for neural network
