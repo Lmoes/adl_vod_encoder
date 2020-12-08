@@ -62,7 +62,9 @@ Error Metrics for clustering
 ============
 This is a bit difficult as there is no ground truth. While we could make up some metrics like spatial coherence, these cant capture whether the classification makes sense. So it makes more sense to do a qualitative analysis of the clusters. Here are some results:
 
-![plot](https://github.com/Lmoesinger/adl_vod_encoder/blob/main/deliverables/results/cluster_ids.png)
+[plot](deliverables/results/output_weekly_ConvTempPrecAutoencoder.png)
+
+![Image of Yaktocat](https://storage.googleapis.com/gweb-uniblog-publish-prod/images/earth-4k.max-1000x1000.jpg)
 
 Notes for myself
 ===========
