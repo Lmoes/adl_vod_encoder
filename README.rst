@@ -50,6 +50,7 @@ There are three losses: One for reconstructing the VOD time series, and one for 
 I use mean square error everywhere, and weight all errors equally. Therefore, currently:
 
 loss = mse(predicted_vod, original_vod) + mse(predicted_precipitation, target_precipitation) + mse(predicted_temperature, target_temperature)
+
 Currently the temperature and vod loss are very low, while the temperature loss is a lot higher. Currently the training stops if there is not validation loss improvement over 5 epochs. As the training anyway is rather fast (a few minutes), i dont see a reason to stop it early if the error is lower than a certain treshold. The current mean reconstruction loss rescaled to the original VOD range is 0.003, which, given that VOD values have a range of about 0. to 2., is *very* low.
 
 Error Metrics for clustering
