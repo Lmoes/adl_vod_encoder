@@ -87,7 +87,7 @@ Time Log
 ===========
 
 - Preprocessing: 1-2h
-- setting up basic autoencoder: 2-3h
+- setting up basic autoencoder: 10h
 - playing around with pytorch: 10h
 - Adding features to autoencoder and dataset (writing all predictions, encodings, performance metrics, etc.): 20h
 - writing tests: 1h
