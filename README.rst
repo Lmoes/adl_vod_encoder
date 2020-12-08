@@ -45,9 +45,8 @@ The encoding is also used to predict precipitation and temperature using two lin
 
 
 The encoding is also used to predict precipitation and temperature using two linear layers each.
- This forces the encoding to also contain the temperature and precipitation information additional to the vod information. This also works as a regularization, since it forces the autoencoder to produce an encoding  that actually contains information and does not just map every training time series to a specific encoding.This is currently done also just with one linear layer. In the future I will experiment with more layers, as the temperature prediction is quite poor currently.
-
-
+ This forces the encoding to also contain the temperature and precipitation information additional to the vod information. This also works as a regularization, since it forces the autoencoder to produce an encoding  that actually contains information and does not just map every training time series to a specific encoding.
+ 
 Error Metrics for neural network
 ============
 There are three losses: One for reconstructing the VOD time series, and one for predicting the temperature and precipitation each.
