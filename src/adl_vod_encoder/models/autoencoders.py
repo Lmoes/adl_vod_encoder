@@ -93,6 +93,17 @@ class BaseModel(pl.LightningModule):
         ts_hats = np.concatenate(batch_ts_hat_list)
         return ts_hats
 
+    def loss_all(self, predictions, ds, origscale=False):
+
+        if origscale:
+            reconstruction_loss = np.nanmean((ds.data * ds.vod_std - predictions[0] * ds.vod_std)**2,1)
+            loss = {'reconstruction_loss_origscale': reconstruction_loss}
+        else:
+
+            reconstruction_loss = np.nanmean((ds.data - predictions[0])**2,1)
+            loss = {'reconstruction_loss': reconstruction_loss}
+        return loss
+
 
 class BaseConvAutoencoder(BaseModel):
     """
