@@ -1,16 +1,37 @@
 # -*- coding: utf-8 -*-
 
-import pytest
-from adl_vod_encoder.skeleton import fib
+import unittest
+from src.adl_vod_encoder.data_io.vod_data_loaders import VodDataset, VodTempPrecDataset
+import os
+import numpy as np
 
-__author__ = "lmoesing"
-__copyright__ = "lmoesing"
-__license__ = "mit"
+class TestDatasets(unittest.TestCase):
+    def setUp(self):
+        testdatadir = os.path.join(os.getcwd(), 'testdata')
+        VodDatasetpath = os.path.join(testdatadir, 'v01_erafrozen_k_weeklysample.nc')
+        era5Datasetpath = os.path.join(testdatadir, 'era5meansample.nc')
+        self.vod_ds = VodDataset(VodDatasetpath)
+        self.era5_ds = VodTempPrecDataset(VodDatasetpath, era5Datasetpath)
+
+    def test_vod_equality(self):
+        """
+        Test whether both loaders load the same vod data
+        :return:
+        """
+        dataA = self.vod_ds.data[~np.isnan(self.vod_ds.data)]
+        dataB = self.era5_ds.data[~np.isnan(self.era5_ds.data)]
+        self.assertEqual(dataA.tolist(), dataB.tolist(), 'test datasets are not read equally')
+
+    def test_std(self):
+        self.assertAlmostEqual(np.nanstd(self.vod_ds.data), 1, delta=0.1, msg='standardized vod values have a variance != 1')
+        self.assertAlmostEqual(np.nanstd(self.era5_ds.precdata), 1, delta=0.1, msg='standardized prec values have a variance != 1')
+        self.assertAlmostEqual(np.nanstd(self.era5_ds.tempdata), 1, delta=0.1, msg='standardized temp values have a variance != 1')
+
+    def test_mean(self):
+        self.assertAlmostEqual(np.nanmean(self.vod_ds.data), 0, delta=0.1, msg='standardized vod values have a mean != 0')
+        self.assertAlmostEqual(np.nanmean(self.era5_ds.precdata), 0, delta=0.1, msg='standardized prec values have a mean != 0')
+        self.assertAlmostEqual(np.nanmean(self.era5_ds.tempdata), 0, delta=0.1, msg='standardized temp values have a mean != 0')
 
 
-def test_fib():
-    assert fib(1) == 1
-    assert fib(2) == 1
-    assert fib(7) == 13
-    with pytest.raises(AssertionError):
-        fib(-10)
+if __name__ == '__main__':
+    unittest.main()
