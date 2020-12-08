@@ -62,9 +62,14 @@ Error Metrics for clustering
 ============
 This is a bit difficult as there is no ground truth. While we could make up some metrics like spatial coherence, these cant capture whether the classification makes sense. So it makes more sense to do a qualitative analysis of the clusters. Here are some results:
 
-[plot](deliverables/results/output_weekly_ConvTempPrecAutoencoder.png)
+The first image shows the clusters using only vod data, using the Basemodel (the encoder is just one linear layer bringing it down to the encoding size of 4, and the decoder a linear layerwith the size of the input size):
 
-![Image of Yaktocat](https://storage.googleapis.com/gweb-uniblog-publish-prod/images/earth-4k.max-1000x1000.jpg)
+.. image:: deliverables/results/output_weekly_BaseModel.png
+
+The colors are done by doing pca on the encoding and using the mean of the first 3 pcs as RGB values (scaled to 0-255). Therefore clusters with similar color also have a similar mean encoding.
+
+.. image:: deliverables/results/output_weekly_ConvTempPrecAutoencoder.png
+
 
 Notes for myself
 ===========
