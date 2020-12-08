@@ -14,29 +14,30 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping
 from kmeans_pytorch import kmeans
 from src.adl_vod_encoder.data_io.vod_data_loaders import VodDataset, VodTempPrecDataset
-from src.adl_vod_encoder.data_io.output_writers import OutputWriter
-from src.adl_vod_encoder.models.autoencoders import BaseModel, BaseConvAutoencoder, BaseTempPrecAutoencoder
+from src.adl_vod_encoder.models.autoencoders import BaseModel, BaseConvAutoencoder, BaseTempPrecAutoencoder, ConvTempPrecAutoencoder
+
 
 if __name__ == "__main__":
 
     temp_resolution = 'weekly'
-    model_name = 'BaseTempPrecAutoencoder'
+    model_name = 'BaseConvAutoencoder'
 
     in_path = '/data/USERS/lmoesing/vod_encoder/data/v01_erafrozen_k_{}.nc'.format(temp_resolution)
     in_path_tp = '/data/USERS/lmoesing/vod_encoder/data/era5mean.nc'
     model_save_path = '/data/USERS/lmoesing/vod_encoder/models/model_{}_{}.pt'.format(temp_resolution, model_name)
     output_save_path = '/data/USERS/lmoesing/vod_encoder/output/output_{}_{}.nc'.format(temp_resolution, model_name)
 
-    train = False
-    device = ["cpu", 'cuda'][1]
+    train = True
+
+    device = ["cpu", 'cuda:0'][0]
 
     try:
         os.makedirs(os.path.dirname(model_save_path))
     except FileExistsError:
         pass
 
-    ds = VodTempPrecDataset(in_path, in_path_tp)
-    model = BaseTempPrecAutoencoder(ds, 4, batch_size=512)
+    ds = VodDataset(in_path)
+    model = BaseConvAutoencoder(ds, 4, batch_size=512)
 
     if train:
         model = model.to(device)
@@ -66,3 +67,6 @@ if __name__ == "__main__":
     cluster_ids_x, cluster_centers = kmeans(torch.from_numpy(encodings), 10)
     ds.add_image(cluster_ids_x.detach().numpy(), 'cluster_ids')
     ds.flush(output_save_path)
+
+
+
