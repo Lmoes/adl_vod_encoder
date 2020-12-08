@@ -23,7 +23,7 @@ Auxiliary data Preprocessing
 https://github.com/Lmoesinger/adl_vod_encoder/blob/main/src/adl_vod_encoder/preprocessing/era5_preprocessing.py
 
 We also use ERA5 (a climate reanalysis dataset) precipitation and surface temperature, which are traditionally used for vegetation classifications.
-We the temporal means, which are side tasks for the autoencoder to predict from the encoding.
+We take the temporal means (over the whole time period, resulting in a single global image), which are side tasks for the autoencoder to predict from the encoding.
 
 
 Normalization/standardization
