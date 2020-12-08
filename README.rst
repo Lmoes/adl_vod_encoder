@@ -41,7 +41,6 @@ Currently, the setup is quite basic:
 - The encoder is just one layer that has the size of the encoding dimension
 - The decoder is just one layer that has the size of the input dimension
 
-I experimented around with convolutional autodencoders, but they did not perform better. I will still try to improve this.
 
 Additionally, the network also tries to predict the mean precipitation and mean temperature.
  This is mostly done as a regularization, since it forces the autoencoder to produce an encoding
