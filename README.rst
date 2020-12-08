@@ -71,6 +71,12 @@ The next image is the output when using the ConvTempPrecAutoencoder (minimalisti
 
 This output is a lot better; There are no clusters that exist both in the tropics and the subarctics. Also there is a nice color gradient going between nearby clusters, it never changes between completely opposite colors.
 
+Future changes
+===========
+Currently the autoencoder also predicts temperature and precipitation, and therefore strictly speaking no longer is one. Therefore I want to get rid of precipitation and temperature. 
+
+The idea is to split the time series into years, and produce an encoding for each year. As the climate does not change drastically over 30 years, we would expect that all years of the same time series should have a similar encoding. Therefore we can then penalize the autoencoder if the encoding differences are large.
+
 Notes for myself
 ===========
 pytochlightning template:
