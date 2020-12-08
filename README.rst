@@ -50,7 +50,7 @@ Additionally, the network also tries to predict the mean precipitation and mean 
  temperature prediction is quite poor currently.
 
 
-Error Metrics
+Error Metrics for neural network
 ============
 There are three losses: One for reconstructing the VOD time series, and one for predicting the temperature and precipitation each.
 I use mean square error everywhere, and weight all errors equally. Therefore, currently:
@@ -58,7 +58,13 @@ I use mean square error everywhere, and weight all errors equally. Therefore, cu
 loss = mse(predicted_vod, original_vod) + mse(predicted_precipitation, target_precipitation) + mse(predicted_temperature, target_temperature)
 Currently the temperature and vod loss are very low, while the temperature loss is a lot higher.
 
+Error Metrics for clustering
+============
+This is a bit difficult as there is no ground truth. While we could make up some metrics like spatial coherence, these cant capture whether the classification makes sense. So it makes more sense to do a qualitative analysis of the clusters. Here are some results:
 
+[plot](deliverables/results/output_weekly_ConvTempPrecAutoencoder.png)
+
+![Image of Yaktocat](https://storage.googleapis.com/gweb-uniblog-publish-prod/images/earth-4k.max-1000x1000.jpg)
 
 Notes for myself
 ===========
