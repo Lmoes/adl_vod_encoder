@@ -15,9 +15,12 @@ class VodDataset(Dataset):
     """
     VOD dataset loader, also handles writing of encoding
     """
-    def __init__(self, in_path, nonans=False):
+    def __init__(self, in_path, nonans=False, equalyearsize=False):
         self.da = xr.open_dataarray(in_path)
         self.da = self.da[(self.da['time.year'] >= 1989) & (self.da['time.year'] < 2017)]
+
+        if equalyearsize:
+            self.da = xr.concat([self.da[self.da['time.year'] == year][:52] for year in np.unique(self.da['time.year'])], 'time')
         if nonans:
             self.tslocs = ~self.da.isnull().any('time')
         else:
@@ -32,7 +35,7 @@ class VodDataset(Dataset):
         self.add_ts(self.data*self.vod_std + self.vod_mean, 'vod_orig')
 
     def __getitem__(self, index):
-        return self.data[index], 0
+        return self.data[index]
 
     def __len__(self):
         return self.data.shape[0]
@@ -44,10 +47,20 @@ class VodDataset(Dataset):
             an array containing the encoding
         :return:
         """
-        encoding_dim = encodings.shape[1]
-        coords = {'latent_variable': np.arange(encoding_dim), **{c: self.da.coords[c] for c in ['lat', 'lon']}}
-        da = xr.DataArray(np.nan, coords, ['latent_variable', 'lat', 'lon'], 'encoding')
-        da.values[:, self.tslocs] = encodings.T
+        encoding_dim = encodings.shape[-1]
+        if encodings.ndim == 2:
+            coords = {'latent_variable': np.arange(encoding_dim), **{c: self.da.coords[c] for c in ['lat', 'lon']}}
+            da = xr.DataArray(np.nan, coords, ['latent_variable', 'lat', 'lon'], 'encoding')
+            da.values[:, self.tslocs] = encodings.T
+
+        else:
+            years = np.unique(self.da.coords['time.year'])
+            coords = {'latent_variable': np.arange(encoding_dim),
+                      'year': years,
+                      **{c: self.da.coords[c] for c in ['lat', 'lon']}}
+            da = xr.DataArray(np.nan, coords, ['latent_variable', 'year', 'lat', 'lon'], 'encoding')
+            da.values[:, :, self.tslocs] = encodings.T
+
         self.out_da_list.append(da)
 
     def add_image(self, data, varname):
@@ -59,9 +72,16 @@ class VodDataset(Dataset):
             name of the variable
         :return:
         """
-        coords = {c: self.da.coords[c] for c in ['lat', 'lon']}
-        da = xr.DataArray(np.nan, coords, ['lat', 'lon'], varname)
-        da.values[self.tslocs] = data
+        if data.ndim == 1:
+            coords = {c: self.da.coords[c] for c in ['lat', 'lon']}
+            da = xr.DataArray(np.nan, coords, ['lat', 'lon'], varname)
+            da.values[self.tslocs] = data
+        else:
+            years = np.unique(self.da.coords['time.year'])
+            coords = {'year': years, **{c: self.da.coords[c] for c in ['lat', 'lon']}}
+            da = xr.DataArray(np.nan, coords, ['year', 'lat', 'lon'], varname)
+            da.values[:, self.tslocs] = data.T
+
         self.out_da_list.append(da)
 
     def add_images(self, images):
