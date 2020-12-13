@@ -23,7 +23,7 @@ Auxiliary data Preprocessing
 https://github.com/Lmoesinger/adl_vod_encoder/blob/main/src/adl_vod_encoder/preprocessing/era5_preprocessing.py
 
 We also use ERA5 (a climate reanalysis dataset) precipitation and surface temperature, which are traditionally used for vegetation classifications.
-We the temporal means, which are side tasks for the autoencoder to predict from the encoding.
+We take the temporal means (over the whole time period, resulting in a single global image), which are side tasks for the autoencoder to predict from the encoding.
 
 
 Normalization/standardization
@@ -34,42 +34,64 @@ standardized(x) = (x - mean(x)) / std(x)
 
 Autoencoder architecture
 ===========
-https://github.com/Lmoesinger/adl_vod_encoder/blob/0f2faf0d3a3824bb8113e0d97e76e05b7b773e14/src/adl_vod_encoder/models/autoencoders.py#L141
+https://github.com/Lmoesinger/adl_vod_encoder/blob/main/src/adl_vod_encoder/models/autoencoders.py#L216
 
 Currently, the setup is quite basic:
 
-- The encoder is just one layer that has the size of the encoding dimension
-- The decoder is just one layer that has the size of the input dimension
+- The encoder is one Conv layer -> linear layer
+- The decoder is one linear layer -> deconvolutional layer
 
-I experimented around with convolutional autodencoders, but they did not perform better. I will still try to improve this.
-
-Additionally, the network also tries to predict the mean precipitation and mean temperature.
- This is mostly done as a regularization, since it forces the autoencoder to produce an encoding
- layer that actually contains information and does not just map every training time series to a specific encoding.
- This is currently done also just with one linear layer. In the future I will experiment with more layers, as the
- temperature prediction is quite poor currently.
-
-
+The encoding is also used to predict precipitation and temperature using two linear layers each.
+ This forces the encoding to also contain the temperature and precipitation information additional to the vod information. This also works as a regularization, since it forces the autoencoder to produce an encoding  that actually contains information and does not just map every training time series to a specific encoding.
+ 
 Error Metrics for neural network
 ============
 There are three losses: One for reconstructing the VOD time series, and one for predicting the temperature and precipitation each.
 I use mean square error everywhere, and weight all errors equally. Therefore, currently:
 
 loss = mse(predicted_vod, original_vod) + mse(predicted_precipitation, target_precipitation) + mse(predicted_temperature, target_temperature)
-Currently the temperature and vod loss are very low, while the temperature loss is a lot higher.
+
+Currently the temperature and vod loss are very low, while the temperature loss is a lot higher. Currently the training stops if there is not validation loss improvement over 5 epochs. As the training anyway is rather fast (a few minutes), i dont see a reason to stop it early if the error is lower than a certain treshold. The current mean reconstruction loss rescaled to the original VOD range is 0.003, which, given that VOD values have a range of about 0. to 2., is *very* low.
 
 Error Metrics for clustering
 ============
 This is a bit difficult as there is no ground truth. While we could make up some metrics like spatial coherence, these cant capture whether the classification makes sense. So it makes more sense to do a qualitative analysis of the clusters. Here are some results:
 
-[plot](deliverables/results/output_weekly_ConvTempPrecAutoencoder.png)
+The first image shows the clusters using only vod data, using the Basemodel (the encoder is just one linear layer bringing it down to the encoding size of 4, and the decoder a linear layerwith the size of the input size):
 
-![Image of Yaktocat](https://storage.googleapis.com/gweb-uniblog-publish-prod/images/earth-4k.max-1000x1000.jpg)
+.. image:: deliverables/results/output_weekly_BaseModel.png
+
+The colors are done by doing pca on the encoding and using the mean of the first 3 pcs as RGB values (scaled to 0-255). Therefore clusters with similar color also have a similar mean encoding. 
+
+Generally the results are, considering how simple the model is, quite good. Generally we get spatialy coherent regions even tough the model was not given any spatial information. Also, often the clusters make sense, as e.g. all deserts are in one cluster. Still there are a lot weird things that make no sense: The tropical cluster (pink) can be found also in high northen latitudes, and the boreal forest cluster (dark green) is also in the subtropics. Part of india is also in the polar (orange) cluster.
+
+
+The next image is the output when using the ConvTempPrecAutoencoder (minimalistic convolutional encoder which also predicts precipitation and temperature)
+
+.. image:: deliverables/results/output_weekly_ConvTempPrecAutoencoder.png
+
+This output is a lot better; There are no clusters that exist both in the tropics and the subarctics. Also there is a nice color gradient going between nearby clusters, it never changes between completely opposite colors.
+
+Future changes
+===========
+Currently the autoencoder also predicts temperature and precipitation, and therefore strictly speaking no longer is one. Therefore I want to get rid of precipitation and temperature. 
+
+The idea is to split the time series into years, and produce an encoding for each year. As the climate does not change drastically over 30 years, we would expect that all years of the same time series should have a similar encoding. Therefore we can then penalize the autoencoder if the encoding differences are large.
 
 Notes for myself
 ===========
 pytochlightning template:
 https://github.com/PyTorchLightning/deep-learning-project-template
+
+Time Log
+===========
+
+- Preprocessing: 1-2h
+- setting up basic autoencoder: 10h
+- playing around with pytorch: 10h
+- Adding features to autoencoder and dataset (writing all predictions, encodings, performance metrics, etc.): 20h
+- writing tests: 1h
+- documentation and analysis and plotting of output: 5h
 
 
 Note
