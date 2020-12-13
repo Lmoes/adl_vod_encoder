@@ -14,13 +14,13 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping
 from kmeans_pytorch import kmeans
 from src.adl_vod_encoder.data_io.vod_data_loaders import VodDataset, VodTempPrecDataset
-from src.adl_vod_encoder.models.autoencoders import BaseModel, BaseConvAutoencoder, BaseTempPrecAutoencoder, ConvTempPrecAutoencoder
+from src.adl_vod_encoder.models.autoencoders import BaseModel, BaseConvAutoencoder, BaseTempPrecAutoencoder, ConvTempPrecAutoencoder, SplitYearAutoencoder
 
 
 if __name__ == "__main__":
 
     temp_resolution = 'weekly'
-    model_name = 'BaseConvAutoencoder'
+    model_name = 'SplitYearAutoencoder'
 
     in_path = '/data/USERS/lmoesing/vod_encoder/data/v01_erafrozen_k_{}.nc'.format(temp_resolution)
     in_path_tp = '/data/USERS/lmoesing/vod_encoder/data/era5mean.nc'
@@ -29,15 +29,15 @@ if __name__ == "__main__":
 
     train = True
 
-    device = ["cpu", 'cuda:0'][0]
+    device = ["cpu", 'cuda:0'][1]
 
     try:
         os.makedirs(os.path.dirname(model_save_path))
     except FileExistsError:
         pass
 
-    ds = VodDataset(in_path)
-    model = BaseConvAutoencoder(ds, 4, batch_size=512)
+    ds = VodDataset(in_path, equalyearsize=True)
+    model = SplitYearAutoencoder(ds, 4, batch_size=512)
 
     if train:
         model = model.to(device)
@@ -56,16 +56,19 @@ if __name__ == "__main__":
     model = model.to(device)
 
     encodings = model.encode_ds(ds)
-    predictions = model.predict_ds(ds)
-
-    ds.add_predictions(predictions)
     ds.add_encodings(encodings)
+
+    predictions = model.predict_ds(ds)
+    ds.add_predictions(predictions)
+
     loss = model.loss_all(predictions, ds)
     loss_origscale = model.loss_all(predictions, ds, origscale=True)
     ds.add_images(loss)
     ds.add_images(loss_origscale)
-    cluster_ids_x, cluster_centers = kmeans(torch.from_numpy(encodings), 10)
-    ds.add_image(cluster_ids_x.detach().numpy(), 'cluster_ids')
+
+    # cluster_ids_x, cluster_centers = kmeans(torch.from_numpy(encodings).view(-1, encodings.shape[-1]), 10)
+    cluster_ids_x = model.cluster_encodings(encodings)
+    ds.add_image(cluster_ids_x, 'cluster_ids')
     ds.flush(output_save_path)
 
 

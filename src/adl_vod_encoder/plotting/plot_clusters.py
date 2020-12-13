@@ -27,7 +27,8 @@ def plot_clusters(encoding_fname):
 
 if __name__ == "__main__":
     temp_resolution = 'weekly'
-    # model_name = 'ConvTempPrecAutoencoder'
-    model_name = 'BaseModel'
+    model_name = 'ConvTempPrecAutoencoder'
+    # model_name = 'BaseTempPrecAutoencoder'
+    # model_name = 'BaseModel'
     encoding_fname = '/data/USERS/lmoesing/vod_encoder/output/output_{}_{}.nc'.format(temp_resolution, model_name)
     plot_clusters(encoding_fname)
