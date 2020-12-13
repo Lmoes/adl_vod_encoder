@@ -5,7 +5,12 @@ from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 from torch.utils.data import random_split
 import numpy as np
-from src.adl_vod_encoder.models.layers import Split, Squeeze, Reshape
+from src.adl_vod_encoder.models.layers import Split, Squeeze, Reshape, View
+from src.adl_vod_encoder.models.validation_metrics import calc_rsquared, normalized_scatter_ratio
+from audtorch.metrics.functional import pearsonr
+from sklearn.metrics import silhouette_score, calinski_harabasz_score
+from kmeans_pytorch import kmeans
+
 
 class BaseModel(pl.LightningModule):
     """
@@ -43,7 +48,7 @@ class BaseModel(pl.LightningModule):
         return optim.Adam(self.parameters(), lr=self.lr)
 
     def training_step(self, batch, batch_nb):
-        x, y = batch
+        x = batch
         x = x.to(self.device)
         inputnans = x != x
         encoding = self(x)
@@ -53,7 +58,7 @@ class BaseModel(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_nb):
-        x, y = batch
+        x = batch
         x = x.to(self.device)
         inputnans = x != x
         encoding = self(x)
@@ -79,7 +84,7 @@ class BaseModel(pl.LightningModule):
         """
         batch_encoding_list = []
         for i, batch in enumerate(DataLoader(ds, batch_size=self.batch_size, num_workers=1)):
-            batch_encoding = self(batch[0])
+            batch_encoding = self(batch)
             batch_encoding_list.append(batch_encoding.detach().numpy())
         encodings = np.concatenate(batch_encoding_list)
         return encodings
@@ -87,7 +92,7 @@ class BaseModel(pl.LightningModule):
     def predict_ds(self, ds):
         batch_ts_hat_list = []
         for i, batch in enumerate(DataLoader(ds, batch_size=self.batch_size, num_workers=1)):
-            batch_encoding = self(batch[0])
+            batch_encoding = self(batch)
             batch_ts_hat = self.decoder(batch_encoding)
             batch_ts_hat_list.append(batch_ts_hat.detach().numpy())
         ts_hats = np.concatenate(batch_ts_hat_list)
@@ -103,6 +108,11 @@ class BaseModel(pl.LightningModule):
             reconstruction_loss = np.nanmean((ds.data - predictions[0])**2,1)
             loss = {'reconstruction_loss': reconstruction_loss}
         return loss
+
+    @staticmethod
+    def cluster_encodings(encodings, tol=1e-4):
+        cluster_ids_x, _ = kmeans(torch.from_numpy(encodings), 10, tol=tol)
+        return cluster_ids_x.detach().numpy()
 
 
 class BaseConvAutoencoder(BaseModel):
@@ -237,4 +247,93 @@ class ConvTempPrecAutoencoder(BaseTempPrecAutoencoder):
             nn.BatchNorm1d(conv1_nfeatures),
             nn.ConvTranspose1d(conv1_nfeatures, 1, conv1_width),
             Squeeze()
+        )
+
+
+class SplitYearAutoencoder(BaseModel):
+    """
+    Autoencoder where each year is encoded/decoded independently.
+
+    The basic idea behind this encoder is that the climate is static over time (which it mostly is for 30 years).
+     We now split the time series of each location by year, and encode each year independently. If all encodings of a
+     time series are more similar to each other than to the encodings of the other time series within the batch, the
+     model is rewarded, and penalized other wise.
+
+     Produces one encoding per year. We can cluster all years independently and then take a majority vote of all
+      years. The agreement between years is an indicator for how sure the model is with its classification.
+
+    The model is very minimalistic as this class is mostly there to be inherited from for more complex models.
+
+    """
+    def __init__(self, dataset, encoding_dim=4, train_size_frac=0.7, batch_size=512, lr=0.001):
+        super(SplitYearAutoencoder, self).__init__(dataset, encoding_dim, train_size_frac, batch_size, lr)
+
+        self.encoder = nn.Sequential(
+            View((-1, 52)),
+            nn.Linear(52, encoding_dim),
+            View((-1, 28, encoding_dim)),
+
+        )
+        self.decoder = nn.Sequential(
+            View((-1, encoding_dim)),
+            nn.Linear(encoding_dim, 52),
+            View((-1, 52*28)),
+        )
+
+    def forward(self, x):
+        x[x != x] = 0.
+        encoding = self.encoder(x[:, None])
+        return encoding
+
+    def training_step(self, batch, batch_nb):
+        x = batch.to(self.device)
+        inputnans = x != x
+        encoding = self(x)
+        disp_loss = -normalized_scatter_ratio(encoding)
+
+        x_hat = self.decoder(encoding)
+        loss = F.mse_loss(x_hat[~inputnans], x[~inputnans])
+        loss = loss * (2. + disp_loss)
+        return loss
+
+    def validation_step(self, batch, batch_nb):
+        loss = self.training_step(batch, batch_nb)
+        self.log('val_loss', loss)
+
+    def encode_ds(self, ds):
+        """
+        Given a dataset, encode it
+        :param ds: torch.utils.data.Dataset
+            dataset
+        :return:
+        """
+        batch_encoding_list = []
+        for i, batch in enumerate(DataLoader(ds, batch_size=self.batch_size, num_workers=1)):
+            batch_encoding = self(batch)
+            batch_encoding_list.append(batch_encoding.detach().numpy())
+        encodings = np.concatenate(batch_encoding_list)
+        return encodings
+
+    @staticmethod
+    def cluster_encodings(encodings, tol=1e-4):
+        cluster_ids_x, _ = kmeans(torch.from_numpy(encodings).view(-1, encodings.shape[-1]), 10, tol=tol)
+        cluster_ids_x = cluster_ids_x.view(-1, 28)
+        return cluster_ids_x.detach().numpy()
+
+
+class SplitYearConvAutoencoder(SplitYearAutoencoder):
+
+    def __init__(self, dataset, encoding_dim=4, train_size_frac=0.7, batch_size=512, lr=0.001):
+        super(SplitYearConvAutoencoder, self).__init__(dataset, encoding_dim, train_size_frac, batch_size, lr)
+
+        self.encoder = nn.Sequential(
+            View((-1, 52)),
+            nn.Linear(52, encoding_dim),
+            View((-1, 28, encoding_dim)),
+
+        )
+        self.decoder = nn.Sequential(
+            View((-1, encoding_dim)),
+            nn.Linear(encoding_dim, 52),
+            View((-1, 52*28)),
         )
