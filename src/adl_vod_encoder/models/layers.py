@@ -40,3 +40,13 @@ class Split(pl.LightningModule):
 
     def forward(self, x):
         return x.split(self.split_size_or_sections, self.dim)
+
+
+class View(pl.LightningModule):
+
+    def __init__(self, shape):
+        super(View, self).__init__()
+        self.shape = shape
+
+    def forward(self, input):
+        return input.view(self.shape)
