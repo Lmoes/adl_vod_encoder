@@ -1,34 +1,29 @@
 """
-Just some basic setup to getmyself familiar with pytorch
-Build after:
-https://towardsdatascience.com/pytorch-lightning-machine-learning-zero-to-hero-in-75-lines-of-code-7892f3ba83c0
-
+Main script to train the model and create encodings
 """
 
 import os
-import numpy as np
-import torch
 from torch import rand, reshape, save, load, from_numpy
-from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping
-from kmeans_pytorch import kmeans
-from src.adl_vod_encoder.data_io.vod_data_loaders import VodDataset, VodTempPrecDataset
-from src.adl_vod_encoder.models.autoencoders import BaseModel, BaseConvAutoencoder, BaseTempPrecAutoencoder, ConvTempPrecAutoencoder, SplitYearAutoencoder
+from src.adl_vod_encoder.data_io.vod_data_loaders import VodTempPrecDataset
+from src.adl_vod_encoder.models.autoencoders import DeepConvTempPrecAutoencoder
 
 
 if __name__ == "__main__":
 
     temp_resolution = 'weekly'
-    model_name = 'SplitYearAutoencoder'
+    model_name = 'DeepConvTempPrecAutoencoder'
 
     in_path = '/data/USERS/lmoesing/vod_encoder/data/v01_erafrozen_k_{}.nc'.format(temp_resolution)
     in_path_tp = '/data/USERS/lmoesing/vod_encoder/data/era5mean.nc'
     model_save_path = '/data/USERS/lmoesing/vod_encoder/models/model_{}_{}.pt'.format(temp_resolution, model_name)
     output_save_path = '/data/USERS/lmoesing/vod_encoder/output/output_{}_{}.nc'.format(temp_resolution, model_name)
 
+    ## settings
     train = True
-
+    encoding_size = 32
+    num_clusters = 30
     device = ["cpu", 'cuda:0'][1]
 
     try:
@@ -36,10 +31,12 @@ if __name__ == "__main__":
     except FileExistsError:
         pass
 
-    ds = VodDataset(in_path, equalyearsize=True)
-    model = SplitYearAutoencoder(ds, 4, batch_size=512)
+    # load ds and model
+    ds = VodTempPrecDataset(in_path, in_path_tp, equalyearsize=False)
+    model = DeepConvTempPrecAutoencoder(ds, encoding_size, batch_size=512)
 
     if train:
+        # train model
         model = model.to(device)
         early_stop_callback = EarlyStopping(monitor='val_loss', min_delta=0.00, patience=5, verbose=True, mode='auto')
         trainer = pl.Trainer(max_epochs=100, min_epochs=1, auto_lr_find=False, auto_scale_batch_size=False,
@@ -49,8 +46,6 @@ if __name__ == "__main__":
         trainer.fit(model)
         save(model.state_dict(), model_save_path)
 
-    device = 'cpu'
-    model = model.to(device)
     model.load_state_dict(load(model_save_path))
     model.eval()
     model = model.to(device)
@@ -66,8 +61,7 @@ if __name__ == "__main__":
     ds.add_images(loss)
     ds.add_images(loss_origscale)
 
-    # cluster_ids_x, cluster_centers = kmeans(torch.from_numpy(encodings).view(-1, encodings.shape[-1]), 10)
-    cluster_ids_x = model.cluster_encodings(encodings)
+    cluster_ids_x = model.cluster_encodings(encodings, num_clusters)
     ds.add_image(cluster_ids_x, 'cluster_ids')
     ds.flush(output_save_path)
 
