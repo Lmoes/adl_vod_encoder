@@ -93,7 +93,7 @@ Using the same network but without predicting temperature and precipitation, we 
 
 .. image:: deliverables/results/output_weekly_BaseConvAutoencoder_32_clusters.png
 
-This is also not bad, but i find i tkinda weird that eastern europe is in the same class as large parts of the subtropics as very different vegetation grows there.
+This is also not bad, but i find it weird that eastern europe is in the same class as large parts of the subtropics.
 
 Other results
 ===========
