@@ -41,6 +41,7 @@ After much trial and error, the best found setup is similar to https://arxiv.org
 - The encoder is consists of two convolution layers then two linear layers
 - The decoder is as close as possible a mirrored setup of the encoder (with deconvolution layers)
 Activation functions are elu, except
+
 - before the encoding it is a sigmoid (to limit the encoding to [0, 1], which is easy to interpret and plot)
 - the activation of the last layer of the decoder is linear, to allow it to reach [-inf, inf]
 
