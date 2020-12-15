@@ -13,7 +13,7 @@ from src.adl_vod_encoder.models.autoencoders import DeepConvTempPrecAutoencoder
 if __name__ == "__main__":
 
     temp_resolution = 'weekly'
-    model_name = 'DeepConvTempPrecAutoencoder'
+    model_name = 'DeepConvTempPrecAutoencoder_2'
 
     in_path = '/data/USERS/lmoesing/vod_encoder/data/v01_erafrozen_k_{}.nc'.format(temp_resolution)
     in_path_tp = '/data/USERS/lmoesing/vod_encoder/data/era5mean.nc'
