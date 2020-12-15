@@ -38,6 +38,7 @@ https://github.com/Lmoesinger/adl_vod_encoder/blob/main/src/adl_vod_encoder/mode
 
 After much trial and error, the best found setup is similar to https://arxiv.org/abs/2002.03624v1:
 
+- At the start a dropout layer is inserted, to prevent the autoencoder to learn "missing observatios" patterns. 
 - The encoder is consists of two convolution layers then two linear layers
 - The decoder is as close as possible a mirrored setup of the encoder (with deconvolution layers)
 Activation functions are elu, except
