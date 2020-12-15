@@ -32,6 +32,12 @@ All data are standardized before feeding it to the network to make them use the 
 
 standardized(x) = (x - mean(x)) / std(x)
 
+Train/test/validation split
+===========
+No test data is set aside, as a) we want to gather information about the data we already have, not predict some new data and b) we already have all the data there is - it is global and wont change notieceable over time 
+
+During training, 30% of the data is set aside for validation to avoid overfitting
+
 Autoencoder architecture
 ===========
 https://github.com/Lmoesinger/adl_vod_encoder/blob/main/src/adl_vod_encoder/models/autoencoders.py#L216
