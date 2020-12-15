@@ -36,13 +36,16 @@ Autoencoder architecture
 ===========
 https://github.com/Lmoesinger/adl_vod_encoder/blob/main/src/adl_vod_encoder/models/autoencoders.py#L216
 
-Currently, the setup is quite basic:
+After much trial and error, the best found setup is similar to https://arxiv.org/abs/2002.03624v1:
 
-- The encoder is one Conv layer -> linear layer
-- The decoder is one linear layer -> deconvolutional layer
+- The encoder is consists of two convolution layers then two linear layers
+- The decoder is as close as possible a mirrored setup of the encoder (with deconvolution layers)
+Activation functions are elu, except
+- before the encoding it is a sigmoid (to limit the encoding to [0, 1], which is easy to interpret and plot)
+- the activation of the last layer of the decoder is linear, to allow it to reach [-inf, inf]
 
-The encoding is also used to predict precipitation and temperature using two linear layers each.
- This forces the encoding to also contain the temperature and precipitation information additional to the vod information. This also works as a regularization, since it forces the autoencoder to produce an encoding  that actually contains information and does not just map every training time series to a specific encoding.
+The encoding is also used to predict precipitation and temperature using two linear layers each with relu activation.
+ This forces the encoding to also contain the temperature and precipitation information additional to the VOD information. This also works as a regularization, since it forces the autoencoder to produce an encoding  that actually contains information and does not just map every training time series to a specific encoding.
  
 Error Metrics for neural network
 ============
@@ -51,11 +54,11 @@ I use mean square error everywhere, and weight all errors equally. Therefore, cu
 
 loss = mse(predicted_vod, original_vod) + mse(predicted_precipitation, target_precipitation) + mse(predicted_temperature, target_temperature)
 
-Currently the temperature and vod loss are very low, while the temperature loss is a lot higher. Currently the training stops if there is not validation loss improvement over 5 epochs. As the training anyway is rather fast (a few minutes), i dont see a reason to stop it early if the error is lower than a certain treshold. The current mean reconstruction loss rescaled to the original VOD range is 0.003, which, given that VOD values have a range of about 0. to 2., is *very* low.
+Currently the training stops if there is not validation loss improvement over 5 epochs. As the training anyway is rather fast (a few minutes), i dont see a reason to stop it early if the error is lower than a certain treshold. The current mean reconstruction loss rescaled to the original VOD range is 0.003, which, given that VOD values have a range of about 0. to 2., is *very* low.
 
 Error Metrics for clustering
 ============
-This is a bit difficult as there is no ground truth. While we could make up some metrics like spatial coherence, these cant capture whether the classification makes sense. So it makes more sense to do a qualitative analysis of the clusters. Here are some results:
+This is a bit difficult as there is no ground truth. While we could make up some metrics like spatial coherence, these can not capture whether the classification makes sense. So it makes more sense to do a qualitative analysis of the clusters. Here are some results:
 
 The first image shows the clusters using only vod data, using the Basemodel (the encoder is just one linear layer bringing it down to the encoding size of 4, and the decoder a linear layerwith the size of the input size):
 
@@ -72,11 +75,9 @@ The next image is the output when using the ConvTempPrecAutoencoder (minimalisti
 
 This output is a lot better; There are no clusters that exist both in the tropics and the subarctics. Also there is a nice color gradient going between nearby clusters, it never changes between completely opposite colors.
 
-Future changes
+Other results
 ===========
-Currently the autoencoder also predicts temperature and precipitation, and therefore strictly speaking no longer is one. Therefore I want to get rid of precipitation and temperature. 
-
-The idea is to split the time series into years, and produce an encoding for each year. As the climate does not change drastically over 30 years, we would expect that all years of the same time series should have a similar encoding. Therefore we can then penalize the autoencoder if the encoding differences are large.
+ - One idea was to split the time series into years, and produce an encoding for each year (https://github.com/Lmoesinger/adl_vod_encoder/blob/main/src/adl_vod_encoder/models/autoencoders.py#L253 ). As the climate does not change drastically over 30 years, we would expect that all years of the same time series should have a similar encoding. Therefore we can then penalize the autoencoder if the encoding differences are large. I did so by comparing the withing-location dispersion of the clusters to the total-batch dispersion (https://github.com/Lmoesinger/adl_vod_encoder/blob/main/src/adl_vod_encoder/models/validation_metrics.py#L61 ). It actually worked kinda nicely, but also didnt really outperform the convolutional net. Abandoned because simpler models > more complex models. 
 
 Notes for myself
 ===========
