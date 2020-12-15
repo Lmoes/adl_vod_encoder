@@ -4,7 +4,7 @@ Global Vegetation Clustering using Deep Learning
 
 
 This project is about automatically extracting features from Vegetation Optical Depth (VOD) time series and auxiliary data.
-These features are then clustered using a shallow learner (currently k-means) to generate global vegetation clusters.
+These features are then clustered using a shallow learner (currently k-means) to generate global vegetation clusters. 
 
 
 VOD Preprocessing
@@ -66,7 +66,10 @@ Currently the training stops if there is not validation loss improvement over 5 
 
 Error Metrics for clustering
 ============
-This is a bit difficult as there is no ground truth. While we could make up some metrics like spatial coherence, these can not capture whether the clusters make sense. So it makes more sense to do a qualitative analysis of the clusters.
+This is a bit difficult as there is no ground truth. While we could make up some metrics like spatial coherence, these can not capture whether the clusters make sense. Therefore it makes more sense to do a qualitative analysis of the clusters by comparing them to some preexsting classification, such as the koeppen geiger.
+
+.. image:: http://koeppen-geiger.vu-wien.ac.at/pics/kottek_et_al_2006.gif
+
 
 Results
 ============
@@ -74,7 +77,7 @@ The first image shows the clusters using only vod data, using the Basemodel (the
 
 .. image:: deliverables/results/output_weekly_BaseModel.png
 
-The colors are done by doing pca on the encoding and using the mean of the first 3 pcs as RGB values (scaled to 0-255). Therefore clusters with similar color also have a similar mean encoding. 
+The colors are done by doing principal compinent analysis on the encoding and using the mean of the first 3 principal components as RGB values (scaled to 0-255). Therefore clusters with similar color also have a similar mean encoding. 
 
 Generally the results are, considering how simple the model is, quite good. Generally we get spatialy coherent regions even tough the model was not given any spatial information. Also, often the clusters make sense, as e.g. all deserts are in one cluster. Still there are a lot weird things that make no sense: The tropical cluster (pink) can be found also in high northen latitudes, and the boreal forest cluster (dark green) is also in the subtropics. Part of india is also in the polar (orange) cluster.
 
@@ -87,15 +90,22 @@ This output is a lot better; There are no clusters that exist both in the tropic
 
 The next image is by using the DeepConvTempPrecAutoencoder (multilayer convolutional encoder which also predicts precipitation and temperature as described in the section "Autoencoder architecture"):
 
-.. image:: deliverables/results/output_weekly_DeepConvTempPrecAutoencoder_32_clusters.png
+.. image:: deliverables/results/output_weekly_DeepConvTempPrecAutoencoder_2_clusters.png
 
-This makes the most sense, as europe and siberia are now mostly in different classes while the rest also makes sense. This is the currently best results and will likely be the one to be used for the application.
+This makes the most sense, as europe and siberia are now mostly in different classes while the rest also makes sense. This is the currently best results and will likely be the one to be used for the application. It is very similar to the koeppen-geiger map, but with the possibility to make an arbitrary number of clusters and the encodings indicate how similar the clusters are to each other. 
+
+Additionall, here is the corresponding image of the encodings (first 3 pcs) without clustering:
+
+.. image:: deliverables/results/output_weekly_DeepConvTempPrecAutoencoder_2_3eofs.png
+
+It looks very nice as color changes are gradually which indicates that even with a higher number of clusters they would still be spatially coherent.
+
 
 Using the same network but without predicting temperature and precipitation, we get following map:
 
 .. image:: deliverables/results/output_weekly_BaseConvAutoencoder_32_clusters.png
 
-This is also not bad, but i find it weird that eastern europe is in the same class as large parts of the subtropics.
+It is better than the minimalistic autoencoder as less weird clusters exist. But there are still problems, e.g. eastern europe is in the same class as large parts of the subtropics.
 
 Other results
 ===========
