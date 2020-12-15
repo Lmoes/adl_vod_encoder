@@ -5,10 +5,8 @@ from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 from torch.utils.data import random_split
 import numpy as np
-from src.adl_vod_encoder.models.layers import Split, Squeeze, Reshape, View
-from src.adl_vod_encoder.models.validation_metrics import calc_rsquared, normalized_scatter_ratio
-from audtorch.metrics.functional import pearsonr
-from sklearn.metrics import silhouette_score, calinski_harabasz_score
+from src.adl_vod_encoder.models.layers import Squeeze, Reshape, View
+from src.adl_vod_encoder.models.validation_metrics import normalized_scatter_ratio
 from kmeans_pytorch import kmeans
 
 
@@ -31,13 +29,18 @@ class BaseModel(pl.LightningModule):
         valsize = len(dataset) - trainsize
         self.dataset_train, self.dataset_val = random_split(dataset, [trainsize, valsize])
 
-        self.encoder = nn.Sequential(
-            nn.Linear(dataset.sample_dim, encoding_dim),
-            Squeeze()
-        )
-        self.decoder = nn.Sequential(
-            nn.Linear(encoding_dim, dataset.sample_dim),
-        )
+        self.e_linear1 = nn.Linear(dataset.sample_dim, encoding_dim)
+        self.d_linear1 = nn.Linear(encoding_dim, dataset.sample_dim)
+
+    def encoder(self, ts):
+        h = self.e_linear1(ts)
+        h = F.sigmoid(h)
+        h = h.squeeze()
+        return h
+
+    def decoder(self, encoding):
+        h = self.d_linear1(encoding)
+        return h
 
     def forward(self, x):
         x[x != x] = 0.
@@ -48,7 +51,7 @@ class BaseModel(pl.LightningModule):
         return optim.Adam(self.parameters(), lr=self.lr)
 
     def training_step(self, batch, batch_nb):
-        x = batch
+        x = batch[0]
         x = x.to(self.device)
         inputnans = x != x
         encoding = self(x)
@@ -58,13 +61,7 @@ class BaseModel(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_nb):
-        x = batch
-        x = x.to(self.device)
-        inputnans = x != x
-        encoding = self(x)
-
-        x_hat = self.decoder(encoding)
-        loss = F.mse_loss(x_hat[~inputnans], x[~inputnans])
+        loss = self.training_step(batch, batch_nb)
         self.log('val_loss', loss)
 
     def train_dataloader(self):
@@ -84,22 +81,33 @@ class BaseModel(pl.LightningModule):
         """
         batch_encoding_list = []
         for i, batch in enumerate(DataLoader(ds, batch_size=self.batch_size, num_workers=1)):
-            batch_encoding = self(batch)
-            batch_encoding_list.append(batch_encoding.detach().numpy())
+            batch_encoding = self(batch[0].to(self.device))
+            batch_encoding_list.append(batch_encoding.cpu().detach().numpy())
         encodings = np.concatenate(batch_encoding_list)
         return encodings
 
     def predict_ds(self, ds):
+        """
+        Given a dataset, return its predicted VOD
+        :param ds: torch.utils.data.Dataset
+            dataset
+        :return:
+        """
         batch_ts_hat_list = []
         for i, batch in enumerate(DataLoader(ds, batch_size=self.batch_size, num_workers=1)):
-            batch_encoding = self(batch)
+            batch_encoding = self(batch[0].to(self.device))
             batch_ts_hat = self.decoder(batch_encoding)
-            batch_ts_hat_list.append(batch_ts_hat.detach().numpy())
+            batch_ts_hat_list.append(batch_ts_hat.cpu().detach().numpy())
         ts_hats = np.concatenate(batch_ts_hat_list)
         return ts_hats
 
     def loss_all(self, predictions, ds, origscale=False):
-
+        """
+        Given a dataset, retrurn the loss of it
+        :param ds: torch.utils.data.Dataset
+            dataset
+        :return:
+        """
         if origscale:
             reconstruction_loss = np.nanmean((ds.data * ds.vod_std - predictions[0] * ds.vod_std)**2,1)
             loss = {'reconstruction_loss_origscale': reconstruction_loss}
@@ -110,37 +118,76 @@ class BaseModel(pl.LightningModule):
         return loss
 
     @staticmethod
-    def cluster_encodings(encodings, tol=1e-4):
-        cluster_ids_x, _ = kmeans(torch.from_numpy(encodings), 10, tol=tol)
+    def cluster_encodings(encodings, nclusters=10, tol=1e-4):
+        """
+        Cluster the created encoding.
+        :param encodings: np.array format [location, latent_variable]
+        :param nclusters: int, number of clusters to make
+        :param tol: float, tolerance when to stop
+        :return:
+        """
+        cluster_ids_x, _ = kmeans(torch.from_numpy(encodings), nclusters, tol=tol)
         return cluster_ids_x.detach().numpy()
 
 
 class BaseConvAutoencoder(BaseModel):
     """
-    Minimalistic convolutional autoencoder. Simplified version of https://arxiv.org/abs/2002.03624v1
+    Convolutional autoencoder. Similar to https://arxiv.org/abs/2002.03624v1
     """
 
     def __init__(self, dataset, encoding_dim=4, train_size_frac=0.7, batch_size=512, lr=0.001):
         super(BaseConvAutoencoder, self).__init__(dataset, encoding_dim, train_size_frac, batch_size, lr)
+        conv1_width = 3
+        conv2_width = 4
+        conv1_nfeatures = 16
 
-        conv1_width = 7
-        conv1_nfeatures = 32
-        self.encoder = nn.Sequential(
-            nn.Conv1d(1, conv1_nfeatures, conv1_width, stride=1, padding_mode='circular'),
-            nn.BatchNorm1d(conv1_nfeatures),
-            nn.Flatten(),
-            nn.Linear((dataset.sample_dim - conv1_width + 1) * conv1_nfeatures, encoding_dim)
-        )
-        self.decoder = nn.Sequential(
-            nn.Linear(encoding_dim, (dataset.sample_dim - conv1_width + 1) * conv1_nfeatures),
-            Reshape((-1, conv1_nfeatures, (dataset.sample_dim - conv1_width + 1))),
-            nn.BatchNorm1d(conv1_nfeatures),
-            nn.ConvTranspose1d(conv1_nfeatures, 1, conv1_width),
-            Squeeze()
-        )
+        # encoder layers
+        self.e_conv1 = nn.Conv1d(1, conv1_nfeatures, conv1_width, stride=2, padding_mode='circular')
+        self.e_batchnorm1 = nn.BatchNorm1d(conv1_nfeatures)
+        self.e_conv2 = nn.Conv1d(conv1_nfeatures, conv1_nfeatures * 2, kernel_size=conv2_width, stride=3)
+        self.e_batchnorm2 = nn.BatchNorm1d(conv1_nfeatures * 2)
+        self.e_linear1 = nn.Linear(conv1_nfeatures * 2 * 243, 64)
+        self.e_linear2 = nn.Linear(64, encoding_dim)
+        # decoder layers
+        self.d_linear2 = nn.Linear(encoding_dim, 64)
+        self.d_linear1 = nn.Linear(64, conv1_nfeatures * 2 * 243)
+        self.d_deconv2 = nn.ConvTranspose1d(conv1_nfeatures * 2, conv1_nfeatures, kernel_size=conv2_width, stride=3)
+        self.d_batchnorm2 = nn.BatchNorm1d(conv1_nfeatures)
+        self.d_deconv1 = nn.ConvTranspose1d(conv1_nfeatures, 1, conv1_width, stride=2, padding_mode='zeros')
+
+    def encoder(self, ts):
+        h = self.e_conv1(ts)
+        h = F.elu(h)
+        h = self.e_batchnorm1(h)
+        h = self.e_conv2(h)
+        h = F.elu(h)
+        h = self.e_batchnorm2(h)
+        h = h.view(-1, h.shape[1] * 243)
+        h = self.e_linear1(h)
+        h = F.elu(h)
+        h = self.e_linear2(h)
+        h = F.sigmoid(h)
+        h = h.squeeze()
+        return h
+
+    def decoder(self, encoding):
+        h = self.d_linear2(encoding)
+        h = F.elu(h)
+        h = self.d_linear1(h)
+        h = F.elu(h)
+        h = h.view(-1, self.d_deconv2.in_channels, 243)
+        h = self.d_deconv2(h)
+        h = self.d_batchnorm2(h)
+        h = F.elu(h)
+        h = self.d_deconv1(h)
+        h = h.squeeze()
+        return h
 
 
 class BaseTempPrecAutoencoder(BaseModel):
+    """
+    Minimalistic autoencoder that also predicts the temperature and precipitation as side tasks
+    """
     def __init__(self, dataset, encoding_dim=4, train_size_frac=0.7, batch_size=512, lr=0.001):
 
         super(BaseTempPrecAutoencoder, self).__init__(dataset, encoding_dim, train_size_frac, batch_size, lr)
@@ -167,21 +214,7 @@ class BaseTempPrecAutoencoder(BaseModel):
         return loss
 
     def validation_step(self, batch, batch_nb):
-        x, y1, y2 = batch
-        x = x.to(self.device)
-        y1 = y1.to(self.device)
-        y2 = y2.to(self.device)
-        inputnans = x != x
-        encoding = self(x)
-
-        x_hat = self.decoder(encoding)
-        t_hat = self.temppredictor(encoding)
-        p_hat = self.precpredictor(encoding)
-
-        reconstruction_loss = F.mse_loss(x_hat[~inputnans], x[~inputnans])
-        t_loss = F.mse_loss(t_hat.squeeze(), y1)
-        p_loss = F.mse_loss(p_hat.squeeze(), y2)
-        loss = reconstruction_loss + t_loss + p_loss
+        loss = self.training_step(batch, batch_nb)
         self.log('val_loss', loss)
 
     def predict_ds(self, ds):
@@ -190,21 +223,28 @@ class BaseTempPrecAutoencoder(BaseModel):
         batch_p_hat_list = []
         for i, batch in enumerate(DataLoader(ds, batch_size=self.batch_size, num_workers=1)):
 
-            batch_encoding = self(batch[0])
+            batch_encoding = self(batch[0].to(self.device))
             batch_x_hat = self.decoder(batch_encoding)
             batch_t_hat = self.temppredictor(batch_encoding)
             batch_p_hat = self.precpredictor(batch_encoding)
 
-            batch_ts_hat_list.append(batch_x_hat.detach().numpy())
-            batch_t_hat_list.append(batch_t_hat.detach().numpy())
-            batch_p_hat_list.append(batch_p_hat.detach().numpy())
+            batch_ts_hat_list.append(batch_x_hat.cpu().detach().numpy())
+            batch_t_hat_list.append(batch_t_hat.cpu().detach().numpy())
+            batch_p_hat_list.append(batch_p_hat.cpu().detach().numpy())
         x_hats = np.concatenate(batch_ts_hat_list)
         t_hats = np.concatenate(batch_t_hat_list)
         p_hats = np.concatenate(batch_p_hat_list)
         return x_hats, t_hats, p_hats
 
     def loss_all(self, predictions, ds, origscale=False):
-
+        """
+        Calculate the loss of a set of predictions
+        :param predictions: list of np arrays [vod_predicted, temp_predicted, prec_predicted]
+            predicted vod, temperature and precipitation values
+        :param ds:
+        :param origscale:
+        :return:
+        """
         if origscale:
             reconstruction_loss = np.nanmean((ds.data * ds.vod_std - predictions[0] * ds.vod_std)**2,1)
             t_loss = (ds.tempdata * ds.temp_std - predictions[1].squeeze() * ds.temp_std)**2
@@ -229,25 +269,91 @@ class ConvTempPrecAutoencoder(BaseTempPrecAutoencoder):
         auxpreddim = 8
 
         self.temppredictor = nn.Sequential(nn.Linear(encoding_dim, auxpreddim),
+                                           nn.ReLU(),
                                            nn.Linear(auxpreddim, 1))
         self.precpredictor = nn.Sequential(nn.Linear(encoding_dim, auxpreddim),
+                                           nn.ReLU(),
                                            nn.Linear(auxpreddim, 1))
 
         conv1_width = 7
         conv1_nfeatures = 32
         self.encoder = nn.Sequential(
             nn.Conv1d(1, conv1_nfeatures, conv1_width, stride=1, padding_mode='circular'),
+            nn.ReLU(),
             nn.BatchNorm1d(conv1_nfeatures),
             nn.Flatten(),
-            nn.Linear((dataset.sample_dim - conv1_width + 1) * conv1_nfeatures, encoding_dim)
+            nn.Linear((dataset.sample_dim - conv1_width + 1) * conv1_nfeatures, encoding_dim),
+            nn.Sigmoid()
         )
         self.decoder = nn.Sequential(
             nn.Linear(encoding_dim, (dataset.sample_dim - conv1_width + 1) * conv1_nfeatures),
+            nn.ReLU(),
             Reshape((-1, conv1_nfeatures, (dataset.sample_dim - conv1_width + 1))),
             nn.BatchNorm1d(conv1_nfeatures),
             nn.ConvTranspose1d(conv1_nfeatures, 1, conv1_width),
             Squeeze()
         )
+
+
+class DeepConvTempPrecAutoencoder(BaseTempPrecAutoencoder):
+    def __init__(self, dataset, encoding_dim=4, train_size_frac=0.7, batch_size=512, lr=0.001):
+        super(DeepConvTempPrecAutoencoder, self).__init__(dataset, encoding_dim, train_size_frac, batch_size, lr)
+        auxpreddim = 8
+
+        self.temppredictor = nn.Sequential(nn.Linear(encoding_dim, auxpreddim),
+                                           nn.ReLU(),
+                                           nn.Linear(auxpreddim, 1))
+        self.precpredictor = nn.Sequential(nn.Linear(encoding_dim, auxpreddim),
+                                           nn.ReLU(),
+                                           nn.Linear(auxpreddim, 1))
+        conv1_width = 3
+        conv2_width = 4
+        conv1_nfeatures = 16
+
+        # encoder layers
+        self.e_conv1 = nn.Conv1d(1, conv1_nfeatures, conv1_width, stride=2, padding_mode='circular')
+        self.e_batchnorm1 = nn.BatchNorm1d(conv1_nfeatures)
+        self.e_conv2 = nn.Conv1d(conv1_nfeatures, conv1_nfeatures * 2, kernel_size=conv2_width, stride=3)
+        self.e_batchnorm2 = nn.BatchNorm1d(conv1_nfeatures * 2)
+        self.e_linear1 = nn.Linear(conv1_nfeatures * 2 * 243, 64)
+        self.e_linear2 = nn.Linear(64, encoding_dim)
+        # decoder layers
+        self.d_linear2 = nn.Linear(encoding_dim, 64)
+        self.d_linear1 = nn.Linear(64, conv1_nfeatures * 2 * 243)
+        self.d_deconv2 = nn.ConvTranspose1d(conv1_nfeatures * 2, conv1_nfeatures, kernel_size=conv2_width, stride=3)
+        self.d_batchnorm2 = nn.BatchNorm1d(conv1_nfeatures)
+        self.d_deconv1 = nn.ConvTranspose1d(conv1_nfeatures, 1, conv1_width, stride=2, padding_mode='zeros')
+
+    def encoder(self, ts):
+        h = F.dropout(ts, p=0.2)
+        h = self.e_conv1(h)
+        h = F.elu(h)
+        h = self.e_batchnorm1(h)
+
+        h = self.e_conv2(h)
+        h = F.elu(h)
+        h = self.e_batchnorm2(h)
+        h = h.view(-1, h.shape[1] * 243)
+        h = self.e_linear1(h)
+        h = F.elu(h)
+        h = self.e_linear2(h)
+        h = F.sigmoid(h)
+
+        h = h.squeeze()
+        return h
+
+    def decoder(self, encoding):
+        h = self.d_linear2(encoding)
+        h = F.elu(h)
+        h = self.d_linear1(h)
+        h = F.elu(h)
+        h = h.view(-1, self.d_deconv2.in_channels, 243)
+        h = self.d_deconv2(h)
+        h = self.d_batchnorm2(h)
+        h = F.elu(h)
+        h = self.d_deconv1(h)
+        h = h.squeeze()
+        return h
 
 
 class SplitYearAutoencoder(BaseModel):
@@ -293,7 +399,7 @@ class SplitYearAutoencoder(BaseModel):
 
         x_hat = self.decoder(encoding)
         loss = F.mse_loss(x_hat[~inputnans], x[~inputnans])
-        loss = loss * (2. + disp_loss)
+        loss = loss * (2 + disp_loss)
         return loss
 
     def validation_step(self, batch, batch_nb):
@@ -309,31 +415,59 @@ class SplitYearAutoencoder(BaseModel):
         """
         batch_encoding_list = []
         for i, batch in enumerate(DataLoader(ds, batch_size=self.batch_size, num_workers=1)):
-            batch_encoding = self(batch)
-            batch_encoding_list.append(batch_encoding.detach().numpy())
+            batch_encoding = self(batch.to(self.device))
+            batch_encoding_list.append(batch_encoding.cpu().detach().numpy())
         encodings = np.concatenate(batch_encoding_list)
         return encodings
 
     @staticmethod
-    def cluster_encodings(encodings, tol=1e-4):
-        cluster_ids_x, _ = kmeans(torch.from_numpy(encodings).view(-1, encodings.shape[-1]), 10, tol=tol)
+    def cluster_encodings(encodings, nclusters=10, tol=1e-4):
+        cluster_ids_x, _ = kmeans(torch.from_numpy(encodings).view(-1, encodings.shape[-1]), nclusters, tol=tol)
         cluster_ids_x = cluster_ids_x.view(-1, 28)
         return cluster_ids_x.detach().numpy()
 
 
 class SplitYearConvAutoencoder(SplitYearAutoencoder):
-
+    """
+    Same idea as class it inherits from, but with a deep convolutional setup
+    """
     def __init__(self, dataset, encoding_dim=4, train_size_frac=0.7, batch_size=512, lr=0.001):
         super(SplitYearConvAutoencoder, self).__init__(dataset, encoding_dim, train_size_frac, batch_size, lr)
-
+        conv1_nfeatures = 32
+        conv2_nfeatures = 64
         self.encoder = nn.Sequential(
-            View((-1, 52)),
-            nn.Linear(52, encoding_dim),
+            View((-1, 1, 52)),
+            nn.Conv1d(1, conv1_nfeatures, 3),
+            nn.BatchNorm1d(conv1_nfeatures),
+            nn.ReLU(),
+            nn.Conv1d(conv1_nfeatures, conv2_nfeatures, 3),
+            nn.BatchNorm1d(conv2_nfeatures),
+            nn.ReLU(),
+            nn.MaxPool1d(3),
+            nn.ReLU(),
+            nn.Conv1d(conv2_nfeatures, conv2_nfeatures, 3),
+            nn.ReLU(),
+            nn.MaxPool1d(3),
+            nn.ReLU(),
+            View((-1, 1, conv2_nfeatures * 4)),
+            nn.Linear(conv2_nfeatures * 4, 32),
+            nn.ReLU(),
+            nn.Linear(32, encoding_dim),
+            nn.Sigmoid(),
             View((-1, 28, encoding_dim)),
-
         )
+
         self.decoder = nn.Sequential(
             View((-1, encoding_dim)),
-            nn.Linear(encoding_dim, 52),
-            View((-1, 52*28)),
+            nn.Linear(encoding_dim, 32),
+            nn.ReLU(),
+            nn.Linear(32, conv2_nfeatures * 46),
+            nn.ReLU(),
+            View((-1, conv2_nfeatures, 46)),
+            nn.ConvTranspose1d(conv2_nfeatures, conv2_nfeatures, 3),
+            nn.ReLU(),
+            nn.ConvTranspose1d(conv2_nfeatures, conv1_nfeatures, 3),
+            nn.ReLU(),
+            nn.ConvTranspose1d(conv1_nfeatures, 1, 3),
+            View((-1, 52 * 28)),
         )
