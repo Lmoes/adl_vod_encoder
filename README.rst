@@ -66,8 +66,10 @@ Currently the training stops if there is not validation loss improvement over 5 
 
 Error Metrics for clustering
 ============
-This is a bit difficult as there is no ground truth. While we could make up some metrics like spatial coherence, these can not capture whether the classification makes sense. So it makes more sense to do a qualitative analysis of the clusters. Here are some results:
+This is a bit difficult as there is no ground truth. While we could make up some metrics like spatial coherence, these can not capture whether the clusters make sense. So it makes more sense to do a qualitative analysis of the clusters.
 
+Results
+============
 The first image shows the clusters using only vod data, using the Basemodel (the encoder is just one linear layer bringing it down to the encoding size of 4, and the decoder a linear layerwith the size of the input size):
 
 .. image:: deliverables/results/output_weekly_BaseModel.png
