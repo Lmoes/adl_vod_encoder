@@ -105,7 +105,7 @@ Using the same network but without predicting temperature and precipitation, we 
 
 .. image:: deliverables/results/output_weekly_BaseConvAutoencoder_32_clusters.png
 
-This is also not bad, but i find it weird that eastern europe is in the same class as large parts of the subtropics.
+It is better than the minimalistic autoencoder as less weird clusters exist. But there are still problems, e.g. eastern europe is in the same class as large parts of the subtropics.
 
 Other results
 ===========
