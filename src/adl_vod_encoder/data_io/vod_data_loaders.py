@@ -35,7 +35,7 @@ class VodDataset(Dataset):
         self.add_ts(self.data*self.vod_std + self.vod_mean, 'vod_orig')
 
     def __getitem__(self, index):
-        return self.data[index]
+        return (self.data[index], )
 
     def __len__(self):
         return self.data.shape[0]
@@ -144,8 +144,8 @@ class VodTempPrecDataset(VodDataset):
     """
     Dataloader/writer that loads VOD, precipitation and temperature data
     """
-    def __init__(self, in_path, temprecipath, nonans=False):
-        super(VodTempPrecDataset, self).__init__(in_path, nonans)
+    def __init__(self, in_path, temprecipath, nonans=False, equalyearsize=False):
+        super(VodTempPrecDataset, self).__init__(in_path, nonans, equalyearsize)
         self.tpds = xr.open_dataset(temprecipath)
         self.temp_mean = self.tpds.temp_mean
         self.temp_std = self.tpds.temp_std
