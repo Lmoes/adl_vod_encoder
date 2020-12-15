@@ -1,9 +1,9 @@
 ===============
-Global vegetation classification using Deep learning
+Global Vegetation Clustering using Deep Learning
 ===============
 
 
-This project is about automatically extracting features from Vegetation Optical Depth (VOD) time series.
+This project is about automatically extracting features from Vegetation Optical Depth (VOD) time series and auxiliary data.
 These features are then clustered using a shallow learner (currently k-means) to generate global vegetation clusters.
 
 
