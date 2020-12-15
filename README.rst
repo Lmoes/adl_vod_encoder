@@ -4,7 +4,7 @@ Global Vegetation Clustering using Deep Learning
 
 
 This project is about automatically extracting features from Vegetation Optical Depth (VOD) time series and auxiliary data.
-These features are then clustered using a shallow learner (currently k-means) to generate global vegetation clusters.
+These features are then clustered using a shallow learner (currently k-means) to generate global vegetation clusters. 
 
 
 VOD Preprocessing
@@ -66,7 +66,10 @@ Currently the training stops if there is not validation loss improvement over 5 
 
 Error Metrics for clustering
 ============
-This is a bit difficult as there is no ground truth. While we could make up some metrics like spatial coherence, these can not capture whether the clusters make sense. So it makes more sense to do a qualitative analysis of the clusters.
+This is a bit difficult as there is no ground truth. While we could make up some metrics like spatial coherence, these can not capture whether the clusters make sense. Therefore it makes more sense to do a qualitative analysis of the clusters by comparing them to some preexsting classification, such as the koeppen geiger.
+
+.. image:: http://koeppen-geiger.vu-wien.ac.at/pics/kottek_et_al_2006.gif
+
 
 Results
 ============
@@ -89,9 +92,13 @@ The next image is by using the DeepConvTempPrecAutoencoder (multilayer convoluti
 
 .. image:: deliverables/results/output_weekly_DeepConvTempPrecAutoencoder_2_clusters.png
 
-This makes the most sense, as europe and siberia are now mostly in different classes while the rest also makes sense. This is the currently best results and will likely be the one to be used for the application. Also, here is the corresponding image of the encodings (first 3 pcs) without clustering:
+This makes the most sense, as europe and siberia are now mostly in different classes while the rest also makes sense. This is the currently best results and will likely be the one to be used for the application. It is very similar to the koeppen-geiger map, but with the possibility to make an arbitrary number of clusters and the encodings indicate how similar the clusters are to each other. 
+
+Additionall, here is the corresponding image of the encodings (first 3 pcs) without clustering:
 
 .. image:: deliverables/results/output_weekly_DeepConvTempPrecAutoencoder_2_3eofs.png
+
+It looks very nice as color changes are gradually which indicates that even with a higher number of clusters they would still be spatially coherent.
 
 
 Using the same network but without predicting temperature and precipitation, we get following map:
