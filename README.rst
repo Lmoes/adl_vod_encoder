@@ -40,7 +40,7 @@ During training, 30% of the data is set aside for validation to avoid overfittin
 
 Autoencoder architecture
 ===========
-https://github.com/Lmoesinger/adl_vod_encoder/blob/main/src/adl_vod_encoder/models/autoencoders.py#L216
+https://github.com/Lmoesinger/adl_vod_encoder/blob/main/src/adl_vod_encoder/models/autoencoders.py#L298
 
 After much trial and error, the best found setup is similar to https://arxiv.org/abs/2002.03624v1:
 
