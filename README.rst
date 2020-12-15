@@ -1,5 +1,5 @@
 ===============
-adl_vod_encoder
+Global vegetation classification using Deep learning
 ===============
 
 
@@ -11,12 +11,12 @@ VOD Preprocessing
 ===========
 https://github.com/Lmoesinger/adl_vod_encoder/blob/main/src/adl_vod_encoder/preprocessing/vodca_preprocessing.py
 
-The original data are daily global images with a quarter degree resolution (1440 x 720 pixels). They range from 1987-08 to 2017-06, but only 1989-01-01 to 2016-12-31 is used as having fully years makes things easier and 1988 has some issues. Values on the southern hemisphere are also shifted by 6 months, so that their seasons align with the northern winter.
+The original data are daily global images with a quarter degree resolution (1440 x 720 pixels). They range from 1987-08 to 2017-06, but only 1989-01-01 to 2016-12-31 is used as having fully years makes things easier and 1988 has some issues. Values on the southern hemisphere are also shifted by 6 months, so that their seasons align with the northern hemisphere.
 
 The data are downsampled to weekly values and saved in a netcdf stack. There are a few reasons for downsampling:
  - The data has missing values, and by taking weekly means we reduce the number of gaps.
  - The original dataset is quite large (~300GB), downsampled (and by dropping some unnecessary columns) it is at 13.3GB.
- - The original data is quite noisy, therefore sub-weekly variations are more a result of noise rather than the climate.
+ - The original data is quite noisy, therefore sub-weekly variations are more a result of noise rather than vegetation changes.
 
 Auxiliary data Preprocessing
 ===========
@@ -45,8 +45,8 @@ Activation functions are elu, except
 - before the encoding it is a sigmoid (to limit the encoding to [0, 1], which is easy to interpret and plot)
 - the activation of the last layer of the decoder is linear, to allow it to reach [-inf, inf]
 
-The encoding is also used to predict precipitation and temperature using two linear layers each with relu activation.
- This forces the encoding to also contain the temperature and precipitation information additional to the VOD information. This also works as a regularization, since it forces the autoencoder to produce an encoding  that actually contains information and does not just map every training time series to a specific encoding.
+The encoding is also used to predict the mean precipitation and temperature using two linear layers each with relu activation.
+ This forces the encoding to also contain the temperature and precipitation information additional to the VOD information. This also serves as a regularization, since it forces the autoencoder to produce an encoding  that actually contains information and does not just map every training time series to a specific encoding.
  
 Error Metrics for neural network
 ============
@@ -55,7 +55,7 @@ I use mean square error everywhere, and weight all errors equally. Therefore, cu
 
 loss = mse(predicted_vod, original_vod) + mse(predicted_precipitation, target_precipitation) + mse(predicted_temperature, target_temperature)
 
-Currently the training stops if there is not validation loss improvement over 5 epochs. As the training anyway is rather fast (a few minutes), i dont see a reason to stop it early if the error is lower than a certain treshold. The current mean reconstruction loss rescaled to the original VOD range is 0.003, which, given that VOD values have a range of about 0. to 2., is *very* low.
+Currently the training stops if there is not validation loss improvement over 5 epochs. As the training anyway is rather fast (a few minutes), i dont see a reason to stop it early if the error is lower than a certain treshold. The current mean reconstruction loss rescaled to the original VOD range is 0.003, which is *very* low.
 
 Error Metrics for clustering
 ============
@@ -74,13 +74,19 @@ The next image is the output when using the ConvTempPrecAutoencoder (minimalisti
 
 .. image:: deliverables/results/output_weekly_ConvTempPrecAutoencoder.png
 
-This output is a lot better; There are no clusters that exist both in the tropics and the subarctics. Also there is a nice color gradient going between nearby clusters, it never changes between completely opposite colors.
+This output is a lot better; There are no clusters that exist both in the tropics and the subarctics. Also there is a nice color gradient going between nearby clusters, it never changes between completely opposite colors. Still, that large parts of europe and siberia are in the same cluster seems weird.
 
 The next image is by using the DeepConvTempPrecAutoencoder (multilayer convolutional encoder which also predicts precipitation and temperature as described in the section "Autoencoder architecture"):
 
 .. image:: deliverables/results/output_weekly_DeepConvTempPrecAutoencoder_32_clusters.png
 
-This makes the most sense, as europe and siberia are nor mostly in different classes. This is the currently best results and will likely be the one to be used for the application
+This makes the most sense, as europe and siberia are now mostly in different classes while the rest also makes sense. This is the currently best results and will likely be the one to be used for the application.
+
+Using the same network but without predicting temperature and precipitation, we get following map:
+
+.. image:: deliverables/results/output_weekly_BaseConvAutoencoder_32_clusters.png
+
+This is also not bad, but i find i tkinda weird that eastern europe is in the same class as large parts of the subtropics as very different vegetation grows there.
 
 Other results
 ===========
