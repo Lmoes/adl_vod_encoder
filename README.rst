@@ -78,13 +78,13 @@ This output is a lot better; There are no clusters that exist both in the tropic
 
 The next image is by using the DeepConvTempPrecAutoencoder (multilayer convolutional encoder which also predicts precipitation and temperature as described in the section "Autoencoder architecture"):
 
-.. image:: deliverables/results/output_weekly_ConvTempPrecAutoencoder.png
+.. image:: deliverables/results/output_weekly_DeepConvTempPrecAutoencoder_32_clusters.png
 
 This makes the most sense, as europe and siberia are nor mostly in different classes. This is the currently best results and will likely be the one to be used for the application
 
 Other results
 ===========
- - One idea was to split the time series into years, and produce an encoding for each year (https://github.com/Lmoesinger/adl_vod_encoder/blob/main/src/adl_vod_encoder/models/autoencoders.py#L253 ). As the climate does not change drastically over 30 years, we would expect that all years of the same time series should have a similar encoding. Therefore we can then penalize the autoencoder if the encoding differences are large. I did so by comparing the withing-location dispersion of the clusters to the total-batch dispersion (https://github.com/Lmoesinger/adl_vod_encoder/blob/main/src/adl_vod_encoder/models/validation_metrics.py#L61 ). It actually worked kinda nicely, but also didnt really outperform the convolutional net. Abandoned because simpler models > more complex models. 
+- One idea was to split the time series into years, and produce an encoding for each year (https://github.com/Lmoesinger/adl_vod_encoder/blob/main/src/adl_vod_encoder/models/autoencoders.py#L253 ). As the climate does not change drastically over 30 years, we would expect that all years of the same time series should have a similar encoding. Therefore we can then penalize the autoencoder if the encoding differences are large. I did so by comparing the withing-location dispersion of the clusters to the total-batch dispersion (https://github.com/Lmoesinger/adl_vod_encoder/blob/main/src/adl_vod_encoder/models/validation_metrics.py#L61 ). It actually worked kinda nicely, but also didnt really outperform the convolutional net. Abandoned because simpler models > more complex models. 
 
 Notes for myself
 ===========
