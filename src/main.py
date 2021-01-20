@@ -13,7 +13,7 @@ from src.adl_vod_encoder.models.autoencoders import DeepConvTempPrecAutoencoder
 if __name__ == "__main__":
 
     temp_resolution = 'weekly'
-    model_name = 'DeepConvTempPrecAutoencoder_2'
+    model_name = 'DeepConvTempPrecAutoencoder_4_3'
 
     in_path = '/data/USERS/lmoesing/vod_encoder/data/v01_erafrozen_k_{}.nc'.format(temp_resolution)
     in_path_tp = '/data/USERS/lmoesing/vod_encoder/data/era5mean.nc'
@@ -22,7 +22,7 @@ if __name__ == "__main__":
 
     ## settings
     train = True
-    encoding_size = 32
+    encoding_size = 4
     num_clusters = 30
     device = ["cpu", 'cuda:0'][1]
 
@@ -33,7 +33,7 @@ if __name__ == "__main__":
 
     # load ds and model
     ds = VodTempPrecDataset(in_path, in_path_tp, equalyearsize=False)
-    model = DeepConvTempPrecAutoencoder(ds, encoding_size, batch_size=512)
+    model = DeepConvTempPrecAutoencoder(ds, encoding_size, batch_size=8192)
 
     if train:
         # train model
