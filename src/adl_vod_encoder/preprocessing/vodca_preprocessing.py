@@ -37,7 +37,6 @@ if __name__ == "__main__":
         os.makedirs(os.path.dirname(out_path))
     except FileExistsError:
         pass
-    da_recombined = xr.open_dataarray(out_path)
     da_recombined.attrs['vod_mean'] = da_recombined.mean().values
     da_recombined.attrs['vod_std'] = da_recombined.std().values
     da_recombined.to_netcdf(out_path)
