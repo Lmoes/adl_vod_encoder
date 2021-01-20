@@ -41,6 +41,6 @@ def plot_clusters(encoding_fname):
 
 if __name__ == "__main__":
     temp_resolution = 'weekly'
-    model_name = 'DeepConvTempPrecAutoencoder_2'
+    model_name = 'DeepConvTempPrecAutoencoder_4_1'
     encoding_fname = '/data/USERS/lmoesing/vod_encoder/output/output_{}_{}.nc'.format(temp_resolution, model_name)
     plot_clusters(encoding_fname)
