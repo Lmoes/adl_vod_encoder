@@ -7,6 +7,17 @@ This project is about automatically extracting features from Vegetation Optical 
 These features are then clustered using a shallow learner (currently k-means) to generate global vegetation clusters. 
 
 
+How to use the app:
+===========
+Clone the repository and install the environment. Then run https://github.com/Lmoesinger/adl_vod_encoder/blob/main/src/cluster_app.py
+
+It takes three arguments:
+ a) path to an encoding. Can be one generated with the main.py script, or the preprocessed one here: https://github.com/Lmoesinger/adl_vod_encoder/blob/main/encodings/final_encodings.nc
+ b) the number of classes to generate [integer]
+ c) (optional) the tolerance of the kmeans
+
+It will then cluster the encoding and write the results to an netcdf file in the directory of the encoding
+
 VOD Preprocessing
 ===========
 https://github.com/Lmoesinger/adl_vod_encoder/blob/main/src/adl_vod_encoder/preprocessing/vodca_preprocessing.py
