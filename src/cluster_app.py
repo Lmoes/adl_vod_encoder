@@ -10,6 +10,17 @@ import sys, getopt
 
 
 def run(encoding_fname, n_clusters, tol=1e-4):
+    """
+    Reads an encoding, clusters it, and saves it to a netcdf file.
+
+    :param encoding_fname: string
+        path to the encoding. Can be one produced by the main.py file, but there is a preprocessed one in /encodings
+    :param n_clusters: int
+        number of clusters to generate
+    :param tol: float
+        kmeans tolerance
+    :return:
+    """
     out_dir = os.path.dirname(encoding_fname)
     encodings = xr.open_dataset(encoding_fname)['encoding']
     nanidx = np.all(np.isnan(encodings), 0)
@@ -62,13 +73,6 @@ def main(argv):
 
     run(encoding_fname, n_clusters, tol)
 
+
 if __name__ == "__main__":
-    # temp_resolution = 'weekly'
-    # model_name = 'DeepConvTempPrecAutoencoder_4_1'
-    # encoding_fname = '/data/USERS/lmoesing/vod_encoder/output/output_{}_{}.nc'.format(temp_resolution, model_name)
-    # encoding_fname = "/data/USERS/lmoesing/vod_encoder/output/encodings.nc"
-
-
-    # run(encoding_fname, 10)
-
     main(sys.argv[1:])
