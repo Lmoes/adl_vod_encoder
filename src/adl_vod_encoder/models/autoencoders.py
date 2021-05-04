@@ -12,7 +12,7 @@ from kmeans_pytorch import kmeans
 
 class BaseModel(pl.LightningModule):
     """
-    Minimalistic autoencoder to be used for inheritance for more complex models
+    Minimalistic autoencoder to be used for inheritance by more complex models
     Handles missing values by setting them to 0, and masking them out for loss calculation.
     Therefore it will still try to predict missing values, but wont be penalized for them.
 
