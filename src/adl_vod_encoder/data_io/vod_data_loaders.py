@@ -9,33 +9,115 @@ import xarray as xr
 import numpy as np
 from torch.utils.data import Dataset
 import os
+from torch.utils.data import random_split
 
 
 class VodDataset(Dataset):
     """
     VOD dataset loader, also handles writing of encoding
     """
-    def __init__(self, in_path, nonans=False, equalyearsize=False):
+    def __init__(self, in_path, nonans=False, equalyearsize=False, split="all", anoms=True, neighbours=0):
         self.da = xr.open_dataarray(in_path)
-        self.da = self.da[(self.da['time.year'] >= 1989) & (self.da['time.year'] < 2017)]
+        self.vod_mean = self.da.vod_mean
+        self.vod_std = self.da.vod_std
+        self.out_da_list = []
+        self.attrs = {}
+        self.anoms = anoms
+        self.neighbours = neighbours
+
+        self.da = self.da.sel(time=slice("1989-01-01", "2016"))
+        self.da.load()
+        if anoms:
+            da_smoothed = self.da.rolling({"time": 4}, center=True, min_periods=1).mean()
+            woy = da_smoothed["time"].dt.weekofyear
+            self.clim = da_smoothed.groupby(woy).apply(lambda x: x.mean("time"))
+            anoms = self.da.groupby(woy).apply(lambda x: x - self.clim.sel(weekofyear=x.time.dt.weekofyear.values[0])).drop("weekofyear")
+            self.da = anoms
+            self.vod_mean = 0.
+            self.vod_std = self.da.std("time")
+
+        self.da = (self.da - self.vod_mean) / self.vod_std
+
+        np.random.seed(42)
+        train_test = np.random.rand(self.da.shape[0])
+        train_test = train_test[:, None, None] * np.ones(self.da.shape)
+        np.random.seed(None)
+        self.trainidx = train_test < 0.8
 
         if equalyearsize:
             self.da = xr.concat([self.da[self.da['time.year'] == year][:52] for year in np.unique(self.da['time.year'])], 'time')
+
         if nonans:
             self.tslocs = ~self.da.isnull().any('time')
         else:
-            self.tslocs = ~self.da.isnull().all('time')
+            self.tslocs = (~self.da.isnull()).sum('time') > 50
 
-        self.vod_mean = self.da.vod_mean
-        self.vod_std = self.da.vod_std
-        self.data = (self.da.values[:, self.tslocs].T.astype(np.float32) - self.vod_mean) / self.vod_std
+
+        self.changefilter("all")
+        self.add_ts(self.data, 'vod_orig')
+        self.changefilter("test")
+        self.add_ts(self.data, 'vod_orig_test')
+
+        self.changefilter(split)
         self.sample_dim = self.data.shape[1]
-        self.out_da_list = []
-        self.attrs = {}
-        self.add_ts(self.data*self.vod_std + self.vod_mean, 'vod_orig')
+        self.n_neighs = (neighbours*2+1)**2 - 1
+        if self.neighbours != 0:
+            # locnums = np.arange(self.tslocs.size).reshape(self.tslocs.shape)
+            locnums = np.zeros_like(self.tslocs, float)
+            locnums[:] = np.nan
+            nlocs = self.tslocs.sum()
+            locnums[self.tslocs] = np.arange(nlocs)
+            # locnums = np.arange(16).reshape((4,4))
+            n_list = []
+            for row in range(-neighbours, neighbours + 1):
+                for col in range(-neighbours, neighbours + 1):
+                    if (col == 0) and (row == 0):
+                        continue
+                    else:
+                        # n_list.append(np.pad(locnums, [[1+row, 1-row], [1+col, 1-col]], "wrap"))
+                        n_list.append(np.pad(locnums, [[neighbours + row, neighbours - row],
+                                                       [neighbours + col, neighbours - col]], "wrap"))
+
+            locnighs = np.stack(n_list)
+            locnighs = locnighs[:,neighbours:-neighbours, neighbours:-neighbours]
+            locnighs = locnighs.reshape((self.n_neighs, -1)).T
+            self.locnighs = locnighs[self.tslocs.values.ravel()]
+
+
+
+
+    def changefilter(self, split="all"):
+        # self.data = (self.da.values[:, self.tslocs].T.astype(np.float32) - self.vod_mean) / self.vod_std
+        self.data = self.da.values[:, self.tslocs].T.astype(np.float32)
+        if split == "train":
+            self.data[~self.trainidx[:, self.tslocs].T] = np.nan
+        if split == "test":
+            self.data[self.trainidx[:, self.tslocs].T] = np.nan
+        self.split = split
+
+    def anomstoraw(self, anoms):
+        woy = anoms["time"].dt.weekofyear
+        raw = anoms.groupby(woy).apply(lambda x: x + self.clim.sel(weekofyear=x.time.dt.weekofyear.values[0])).drop("weekofyear")
+        raw.name = anoms.name
+        return raw
+
 
     def __getitem__(self, index):
-        return (self.data[index], )
+        if self.neighbours == 0:
+            return (self.data[index], )
+        else:
+            # return (self.data[list(range(9))].T, )
+
+            neigidx = self.locnighs[index]
+            tmpl = np.empty([self.n_neighs + 1, self.sample_dim]).astype(np.float32)
+            tmpl[:] = np.nan
+            neighisnan = neigidx != neigidx
+            dataidx = neigidx[~neighisnan].astype(int)
+            data = self.data[np.concatenate([[index], dataidx])]
+            tmpl[~np.concatenate([[False], neighisnan]), :] = data
+            # dummydata = np.ones((self.n_neighs + 1 - data.shape[0], data.shape[1])).astype(np.float32)
+            # dummydata[:] = np.nan
+            return (tmpl, )
 
     def __len__(self):
         return self.data.shape[0]
@@ -72,6 +154,7 @@ class VodDataset(Dataset):
             name of the variable
         :return:
         """
+        varname = varname + "_" + self.split
         if data.ndim == 1:
             coords = {c: self.da.coords[c] for c in ['lat', 'lon']}
             da = xr.DataArray(np.nan, coords, ['lat', 'lon'], varname)
@@ -103,8 +186,13 @@ class VodDataset(Dataset):
             name of the variable
         :return:
         """
-        da = xr.DataArray(np.nan, self.da.coords, ['time', 'lat', 'lon'], tsname)
+        da = xr.DataArray(np.nan, self.da.coords, ['time', 'lat', 'lon'], tsname + "_" + self.split)
         da.values[:, self.tslocs] = data.T
+        da = (da * self.vod_std + self.vod_mean).rename(da.name)
+
+        if self.anoms:
+            self.out_da_list.append(da.rename(da.name + "_anoms"))
+            da = self.anomstoraw(da)
         self.out_da_list.append(da)
 
     def add_predictions(self, predictions):
@@ -137,7 +225,131 @@ class VodDataset(Dataset):
             pass
         ds = xr.merge(self.out_da_list)
         ds.attrs = self.attrs
-        ds.to_netcdf(fname)
+        comp = dict(zlib=True, complevel=5)
+
+        try:
+            encoding = {var: comp for var in ds.data_vars}
+            ds.to_netcdf(fname, encoding=encoding)
+        except AttributeError:
+            encoding = {ds.name: comp}
+            ds.to_netcdf(fname, encoding=encoding)
+
+
+class SMDataSet(VodDataset):
+
+    def read_clim(self, in_path):
+        smdir = os.path.join(os.path.dirname(in_path), "sm_clim/")
+        fnames = [os.path.join(smdir, x) for x in os.listdir(smdir) if x.endswith(".nc")]
+        ds_clim = xr.open_mfdataset(fnames)
+        da_clim = ds_clim["sm"]
+        da_clim = da_clim.transpose("time", "lat", "lon")
+        da_clim = da_clim.groupby(da_clim.time.dt.month).mean()
+        return da_clim
+
+    def anomstoraw(self, anoms):
+        woy = anoms["time"].dt.month
+        raw = anoms.groupby(woy).apply(lambda x: x + self.clim.sel(month=x.time.dt.month.values[0])).drop("month")
+        raw.name = anoms.name
+        return raw
+
+
+    def __init__(self, in_path, nonans=False, equalyearsize=False, split="all", neighbours=0):
+        ds = xr.open_dataset(in_path)
+        self.da = ds["sm_anom"]
+        self.vod_mean = self.da.mean("time")
+        self.vod_std = self.da.std("time")
+        self.out_da_list = []
+        self.attrs = {}
+        self.neighbours = neighbours
+        self.anoms=True
+
+        self.da = self.da.sel(time=slice("1989-01-01", "2016"))
+        self.da.load()
+
+        self.clim = self.read_clim(in_path)
+
+        self.da = (self.da - self.vod_mean) / self.vod_std
+
+        np.random.seed(42)
+        train_test = np.random.rand(self.da.shape[0])
+        train_test = train_test[:, None, None] * np.ones(self.da.shape)
+        np.random.seed(None)
+        self.trainidx = train_test < 0.8
+
+        if equalyearsize:
+            self.da = xr.concat([self.da[self.da['time.year'] == year][:52] for year in np.unique(self.da['time.year'])], 'time')
+
+        if nonans:
+            self.tslocs = ~self.da.isnull().any('time')
+        else:
+            self.tslocs = (~self.da.isnull()).sum('time') > 50
+
+        self.changefilter("all")
+        self.add_ts(self.data, 'vod_orig')
+        self.changefilter("test")
+        self.add_ts(self.data, 'vod_orig_test')
+
+        self.changefilter(split)
+        self.sample_dim = self.data.shape[1]
+        self.n_neighs = (neighbours*2+1)**2 - 1
+        if self.neighbours != 0:
+            # locnums = np.arange(self.tslocs.size).reshape(self.tslocs.shape)
+            locnums = np.zeros_like(self.tslocs, float)
+            locnums[:] = np.nan
+            nlocs = self.tslocs.sum()
+            locnums[self.tslocs] = np.arange(nlocs)
+            # locnums = np.arange(16).reshape((4,4))
+            n_list = []
+            for row in range(-neighbours, neighbours + 1):
+                for col in range(-neighbours, neighbours + 1):
+                    if (col == 0) and (row == 0):
+                        continue
+                    else:
+                        # n_list.append(np.pad(locnums, [[1+row, 1-row], [1+col, 1-col]], "wrap"))
+                        n_list.append(np.pad(locnums, [[neighbours + row, neighbours - row],
+                                                       [neighbours + col, neighbours - col]], "wrap"))
+
+            locnighs = np.stack(n_list)
+            locnighs = locnighs[:,neighbours:-neighbours, neighbours:-neighbours]
+            locnighs = locnighs.reshape((self.n_neighs, -1)).T
+            self.locnighs = locnighs[self.tslocs.values.ravel()]
+
+
+class VodNeighbourDataset(VodDataset):
+    def __init__(self, in_path, nonans=False, equalyearsize=False, split="all", anoms=True):
+        self.da = xr.open_dataarray(in_path)
+        self.vod_mean = self.da.vod_mean
+        self.vod_std = self.da.vod_std
+        self.out_da_list = []
+        self.attrs = {}
+        self.anoms = anoms
+
+        self.da = self.da.sel(time=slice("1989-01-01", "2016"))
+        self.da.load()
+        if anoms:
+            da_smoothed = self.da.rolling({"time": 4}, center=True, min_periods=1).mean()
+            woy = da_smoothed["time"].dt.weekofyear
+            self.clim = da_smoothed.groupby(woy).apply(lambda x: x.mean("time"))
+            anoms = self.da.groupby(woy).apply(lambda x: x - self.clim.sel(week=x.time.dt.weekofyear.values[0])).drop("week")
+            self.da = anoms
+            self.vod_mean = 0.
+            self.vod_std = self.da.std("time")
+
+        self.da = (self.da - self.vod_mean) / self.vod_std
+
+        np.random.seed(42)
+        train_test = np.random.rand(self.da.shape[0])
+        train_test = train_test[:, None, None] * np.ones(self.da.shape)
+        np.random.seed(None)
+        self.trainidx = train_test < 0.8
+
+        if equalyearsize:
+            self.da = xr.concat([self.da[self.da['time.year'] == year][:52] for year in np.unique(self.da['time.year'])], 'time')
+
+        if nonans:
+            self.tslocs = ~self.da.isnull().any('time')
+        else:
+            self.tslocs = (~self.da.isnull()).sum('time') > 50
 
 
 class VodTempPrecDataset(VodDataset):

@@ -1,26 +1,30 @@
-name: adl_vod_encoder2
+name: adl_vod_encoder11
 channels:
-  - defaults
+#  - defaults
   - anaconda
   - conda-forge
   - pytorch
 dependencies:
-  - python=3.6
+  - python
   - numpy
   - pandas
   - matplotlib
   - scipy
   - xarray
   - dask
-  - pytorch=1.7
+  - pytorch=1.10
   - pytorch-lightning
-  - torchvision
+#  - torchvision
+#  - torchaudio
+#  - cudatoolkit
   - pip
   - pip:
       - sklearn
       - smecv_grid
-      - SimpleCRF
-      - kmeans-pytorch
+#      - SimpleCRF
+#      - kmeans-pytorch
       - pynetcf
-      - eofs
-      - audtorch
+#      - eofs
+#      - audtorch
+#      - pyro-ppl
+#      - gpytorch
