@@ -113,25 +113,7 @@ class BaseModel(pl.LightningModule):
 
 
     def loss_per_gaplength(self, predictions, ds, appendname=""):
-
-        def get_nanmasl(x):
-            # x = np.random.rand(10)
-            # x[[0, 3, 5, 6, 7]] = np.nan
-            isnan = np.isnan(x)
-            a = (~isnan).cumsum()[isnan]
-            nanlength = pd.Series(a).groupby(a).count()
-            out = np.zeros_like(x)
-            out[:] = np.nan
-            startidx = np.diff(isnan.astype(int), prepend=False) == 1
-            out[startidx] = nanlength
-            ffilled = pd.Series(out).ffill().values.astype(int)
-            ffilled[~isnan] = 0
-            return ffilled
-
-
         def get_gapdist(x, maxgap=10):
-            # x = np.random.rand(10)
-            # x[[0, 3, 5, 6, 7]] = np.nan
             isnan = np.isnan(x)
             temp = (~isnan).astype(int)
 
@@ -146,16 +128,9 @@ class BaseModel(pl.LightningModule):
         temp = ds.da.values[:, ds.tslocs].T.astype(np.float32)
         temp[~ds.trainidx[:, ds.tslocs].T] = np.nan
         k = np.apply_along_axis(get_gapdist, 1, temp)
-        # k[k > 10] = 11
         groups = xr.DataArray(rmsd).groupby(xr.DataArray(k))
-        # count = groups.count()
-        # meanerror = groups.mean()
         quants = groups.quantile([0.05, 0.25, 0.5, 0.75, 0.95])
 
-        # quants.sel(quantile=0.5).plot(color="r")
-        # plt.fill_between(quants.group, quants.sel(quantile=0.25), quants.sel(quantile=0.75), alpha=0.3)
-        # plt.show()
-        # plt.close()
         quants.name = "loss_gaplength_linear_{}".format(appendname)
         quants = quants.rename({"group": "gaplength"})
         return quants
@@ -478,7 +453,6 @@ class NeighbourLSTMGapFiller(BaseGapFiller):
         centerts = torch.clone(x[:,0,:])
         inputnans = centerts != centerts
         predictvals = predictvals & ~inputnans
-        # x2 = torch.clone(x)
         x[(predictvals[:, None, :] * torch.ones_like(x)) == 1] = self.nan_fillvalue
         x_hat = self(x)
 
