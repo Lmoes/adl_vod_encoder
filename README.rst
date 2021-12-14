@@ -1,5 +1,17 @@
+INFO FOR WOLFI:
+===========
+Start from src/main.py
+
+Specify a model to use in the variable "modelclass". src.adl_vod_encoder.models.autoencoders contains suitable models.
+There are two models that are right now useful:
+ autoencoders.LSTMGapFiller() : Simple LSTM for filling gaps along a time series
+ autoencoders.NeighbourLSTMGapFiller() : Same LSTM as LSTMGapFiller, but can also use the neighbouring time series
+
+If you set neighbours to 0 in main.py, use LSTMGapFiller, for neighbours >= 1 use NeighbourLSTMGapFiller. If you write your own model, it should inherit from those two or autoencoders.BaseGapFiller()
+
+
 ===============
-Global Vegetation Clustering using Deep Learning
+Global Vegetation Clustering using Deep Learning (OLD PURPOSE)
 ===============
 
 

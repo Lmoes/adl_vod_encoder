@@ -60,21 +60,20 @@ class VodDataset(Dataset):
 
         self.changefilter(split)
         self.sample_dim = self.data.shape[1]
+
+        ## making an index for each GPI which the neighbour GPIs are
         self.n_neighs = (neighbours*2+1)**2 - 1
         if self.neighbours != 0:
-            # locnums = np.arange(self.tslocs.size).reshape(self.tslocs.shape)
             locnums = np.zeros_like(self.tslocs, float)
             locnums[:] = np.nan
             nlocs = self.tslocs.sum()
             locnums[self.tslocs] = np.arange(nlocs)
-            # locnums = np.arange(16).reshape((4,4))
             n_list = []
             for row in range(-neighbours, neighbours + 1):
                 for col in range(-neighbours, neighbours + 1):
                     if (col == 0) and (row == 0):
                         continue
                     else:
-                        # n_list.append(np.pad(locnums, [[1+row, 1-row], [1+col, 1-col]], "wrap"))
                         n_list.append(np.pad(locnums, [[neighbours + row, neighbours - row],
                                                        [neighbours + col, neighbours - col]], "wrap"))
 
@@ -87,7 +86,11 @@ class VodDataset(Dataset):
 
 
     def changefilter(self, split="all"):
-        # self.data = (self.da.values[:, self.tslocs].T.astype(np.float32) - self.vod_mean) / self.vod_std
+        """
+        Changes the dataset between training/test/all
+        :param split:
+        :return:
+        """
         self.data = self.da.values[:, self.tslocs].T.astype(np.float32)
         if split == "train":
             self.data[~self.trainidx[:, self.tslocs].T] = np.nan
@@ -237,23 +240,21 @@ class VodDataset(Dataset):
 
 class SMDataSet(VodDataset):
 
-    def read_clim(self, in_path):
-        smdir = os.path.join(os.path.dirname(in_path), "sm_clim/")
-        fnames = [os.path.join(smdir, x) for x in os.listdir(smdir) if x.endswith(".nc")]
-        ds_clim = xr.open_mfdataset(fnames)
-        da_clim = ds_clim["sm"]
-        da_clim = da_clim.transpose("time", "lat", "lon")
-        da_clim = da_clim.groupby(da_clim.time.dt.month).mean()
-        return da_clim
 
-    def anomstoraw(self, anoms):
-        woy = anoms["time"].dt.month
-        raw = anoms.groupby(woy).apply(lambda x: x + self.clim.sel(month=x.time.dt.month.values[0])).drop("month")
-        raw.name = anoms.name
-        return raw
+    def __init__(self, in_path, nonans=False, split="all", neighbours=0):
+        """
+        :param in_path: filename of sm data
+        :param nonans: if true, loads only ts with no nans in it. if false, loads all ts with at least 50 observations.
+        :param split: Whether to load "all" data or only "test" or "train"(ing) data
+        :param neighbours: number of neighbours
 
-
-    def __init__(self, in_path, nonans=False, equalyearsize=False, split="all", neighbours=0):
+        # neighbours is an integer indicating how many neighbouring ts should be used
+    #     0: Just center ts (use LSTMGapFiller)
+    #     1: 3-neighbourhood = 9 ts total (use NeighbourLSTMGapFiller)
+    #     2: 5-neighbourhood = 25 total (use NeighbourLSTMGapFiller)
+    #     3: 7-neibourhood = 49 total (use NeighbourLSTMGapFiller)
+    #     4: etc....
+        """
         ds = xr.open_dataset(in_path)
         self.da = ds["sm_anom"]
         self.vod_mean = self.da.mean("time")
@@ -275,9 +276,6 @@ class SMDataSet(VodDataset):
         train_test = train_test[:, None, None] * np.ones(self.da.shape)
         np.random.seed(None)
         self.trainidx = train_test < 0.8
-
-        if equalyearsize:
-            self.da = xr.concat([self.da[self.da['time.year'] == year][:52] for year in np.unique(self.da['time.year'])], 'time')
 
         if nonans:
             self.tslocs = ~self.da.isnull().any('time')
@@ -313,6 +311,22 @@ class SMDataSet(VodDataset):
             locnighs = locnighs[:,neighbours:-neighbours, neighbours:-neighbours]
             locnighs = locnighs.reshape((self.n_neighs, -1)).T
             self.locnighs = locnighs[self.tslocs.values.ravel()]
+
+    def read_clim(self, in_path):
+        smdir = os.path.join(os.path.dirname(in_path), "sm_clim/")
+        fnames = [os.path.join(smdir, x) for x in os.listdir(smdir) if x.endswith(".nc")]
+        ds_clim = xr.open_mfdataset(fnames)
+        da_clim = ds_clim["sm"]
+        da_clim = da_clim.transpose("time", "lat", "lon")
+        da_clim = da_clim.groupby(da_clim.time.dt.month).mean()
+        return da_clim
+
+    def anomstoraw(self, anoms):
+        woy = anoms["time"].dt.month
+        raw = anoms.groupby(woy).apply(lambda x: x + self.clim.sel(month=x.time.dt.month.values[0])).drop("month")
+        raw.name = anoms.name
+        return raw
+
 
 
 class VodNeighbourDataset(VodDataset):

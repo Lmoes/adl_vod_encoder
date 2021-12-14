@@ -3,13 +3,14 @@ Main script to train the model and create encodings
 """
 
 import os
-from torch import rand, reshape, save, load, from_numpy
+from torch import save, load
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping
+# set the dataset loader here
 from src.adl_vod_encoder.data_io.vod_data_loaders import SMDataSet as voddataset
+# set the deep learning model here
 from src.adl_vod_encoder.models.autoencoders import NeighbourLSTMGapFiller as modelclass
 import xarray as xr
-import numpy as np
 
 if __name__ == "__main__":
 
@@ -25,27 +26,37 @@ if __name__ == "__main__":
     output_save_path = '/data/USERS/lmoesing/vod_encoder/output/output_{}.nc'.format(model_name)
 
     ## settings
+    # Whether to train a model, or skip training load an already trained one
     train = True
-    encoding_size = 4
-    num_clusters = 30
+    # Whether to tain on CPU or GPU. Training goes usually a lot faster on the GPU, but debugging is easier on the CPU
     device = ["cpu", 'cuda:0'][1]
+    # How many workers to use for data loading. Because we can anyway load all data into memory we dont need multiple, and greater 0 makes debugging messy
     num_workers = 0
+    # size of batch. Usually set to as high as possible until your GPU runs out of memory
     batch_size = 1024
+    # neighbours is an integer indicating how many neighbouring ts should be used
+    #     0: Just center ts (use LSTMGapFiller)
+    #     1: 3-neighbourhood = 9 ts total (use NeighbourLSTMGapFiller)
+    #     2: 5-neighbourhood = 25 total (use NeighbourLSTMGapFiller)
+    #     3: 7-neibourhood = 49 total (use NeighbourLSTMGapFiller)
+    #     4: etc....
     neighbours=5
+    # what to fill nans with during training. Im still unsure what the best approach is, but this worked best
     nan_fillvalue= 0.
+
+
     try:
         os.makedirs(os.path.dirname(model_save_path))
     except FileExistsError:
         pass
 
-    ds = voddataset(in_path, equalyearsize=False, split="train",neighbours=neighbours)
-    # ds = 2
+    # load data
+    ds = voddataset(in_path, split="train",neighbours=neighbours)
+    # specify model
     model = modelclass(ds, batch_size=batch_size, lr=0.001, losssubset=losssubset, splitglobal=splitglobal,
                        num_workers=num_workers, nan_fillvalue=nan_fillvalue)
 
     if train:
-        # load ds and model
-        # ds_train, ds_test = ds.split_train_test(0.7)
         # train model
         model = model.to(device)
         early_stop_callback = EarlyStopping(monitor='val_loss', min_delta=0.001, patience=5, verbose=True, mode="min")
@@ -56,6 +67,7 @@ if __name__ == "__main__":
         trainer.fit(model)
         save(model.state_dict(), model_save_path)
 
+    ### create various outputs
     ### linear predictions
     da = xr.DataArray(ds.data)
     linear_interp = da.interpolate_na("dim_1").values
@@ -68,7 +80,7 @@ if __name__ == "__main__":
     loss_per_gaplength_linear = model.loss_per_gaplength(linear_interp, ds, "linear")
     ds.out_da_list.append(loss_per_gaplength_linear)
 
-    ### all
+    ### train
 
     # model = modelclass(ds, batch_size=int(batch_size/4))
     ds.changefilter("train")
