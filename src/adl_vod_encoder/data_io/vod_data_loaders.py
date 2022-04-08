@@ -328,6 +328,112 @@ class SMDataSet(VodDataset):
         return raw
 
 
+class SMDataSetImage(SMDataSet):
+
+
+
+    def changefilter(self, split="all"):
+        """
+        Changes the dataset between training/test/all
+        :param split:
+        :return:
+        """
+        self.data = self.da.values.astype(np.float32)
+        if split == "train":
+            self.data[~self.trainidx] = np.nan
+        if split == "test":
+            self.data[self.trainidx] = np.nan
+        self.split = split
+
+    def add_ts(self, data, tsname):
+        """
+        add a time series to the output
+        :param data: np.array
+            the time series
+        :param tsname: string
+            name of the variable
+        :return:
+        """
+
+        da = xr.DataArray(data, self.da.coords, ['time', 'lat', 'lon'], tsname + "_" + self.split)
+        da = (da * self.vod_std + self.vod_mean).rename(da.name)
+
+        if self.anoms:
+            self.out_da_list.append(da.rename(da.name + "_anoms"))
+            da = self.anomstoraw(da)
+        self.out_da_list.append(da)
+
+
+    def __init__(self, in_path, nonans=False, split="all",anoms=True, neighbours=0):
+        ds = xr.open_dataset(in_path)
+        self.da = ds["sm_anom"]
+        self.out_da_list = []
+        self.attrs = {}
+        self.neighbours = neighbours
+        self.anoms = anoms
+
+        self.da = self.da.sel(time=slice("1989-01-01", "2023"))
+
+        self.clim = self.read_clim(in_path)
+        if not anoms:
+            self.da = self.anomstoraw(self.da)
+        self.da.load()
+        self.vod_mean = self.da.mean("time")
+        self.vod_std = self.da.std("time")
+        self.da = (self.da - self.vod_mean) / self.vod_std
+
+        self.trainidx = (self.da.lon > -30).values[None, None, :] * np.ones(self.da.shape)
+        self.trainidx = self.trainidx.astype(bool)
+
+
+        self.changefilter("all")
+        self.add_ts(self.data, 'vod_orig')
+        self.changefilter("test")
+        self.add_ts(self.data, 'vod_orig_test')
+
+        self.changefilter(split)
+        self.sample_dim = self.data.shape[0]
+        # self.n_neighs = (neighbours*2+1)**2 - 1
+        # if self.neighbours != 0:
+        #     # locnums = np.arange(self.tslocs.size).reshape(self.tslocs.shape)
+        #     locnums = np.zeros_like(self.tslocs, float)
+        #     locnums[:] = np.nan
+        #     nlocs = self.tslocs.sum()
+        #     locnums[self.tslocs] = np.arange(nlocs)
+        #     # locnums = np.arange(16).reshape((4,4))
+        #     n_list = []
+        #     for row in range(-neighbours, neighbours + 1):
+        #         for col in range(-neighbours, neighbours + 1):
+        #             if (col == 0) and (row == 0):
+        #                 continue
+        #             else:
+        #                 # n_list.append(np.pad(locnums, [[1+row, 1-row], [1+col, 1-col]], "wrap"))
+        #                 n_list.append(np.pad(locnums, [[neighbours + row, neighbours - row],
+        #                                                [neighbours + col, neighbours - col]], "wrap"))
+        #
+        #     locnighs = np.stack(n_list)
+        #     locnighs = locnighs[:,neighbours:-neighbours, neighbours:-neighbours]
+        #     locnighs = locnighs.reshape((self.n_neighs, -1)).T
+        #     self.locnighs = locnighs[self.tslocs.values.ravel()]
+
+
+    def __getitem__(self, index):
+        if self.neighbours == 0:
+            return (self.data[index], )
+        else:
+            # return (self.data[list(range(9))].T, )
+
+            neigidx = self.locnighs[index]
+            tmpl = np.empty([self.n_neighs + 1, self.sample_dim]).astype(np.float32)
+            tmpl[:] = np.nan
+            neighisnan = neigidx != neigidx
+            dataidx = neigidx[~neighisnan].astype(int)
+            data = self.data[np.concatenate([[index], dataidx])]
+            tmpl[~np.concatenate([[False], neighisnan]), :] = data
+            # dummydata = np.ones((self.n_neighs + 1 - data.shape[0], data.shape[1])).astype(np.float32)
+            # dummydata[:] = np.nan
+            return (tmpl, )
+
 
 class VodNeighbourDataset(VodDataset):
     def __init__(self, in_path, nonans=False, equalyearsize=False, split="all", anoms=True):

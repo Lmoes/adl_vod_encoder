@@ -7,9 +7,9 @@ from torch import save, load
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping
 # set the dataset loader here
-from src.adl_vod_encoder.data_io.vod_data_loaders import SMDataSet as voddataset
+from src.adl_vod_encoder.data_io.vod_data_loaders import SMDataSetImage as voddataset
 # set the deep learning model here
-from src.adl_vod_encoder.models.autoencoders import NeighbourLSTMGapFiller as modelclass
+from src.adl_vod_encoder.models.autoencoders import LSTMGapFiller as modelclass
 import xarray as xr
 
 if __name__ == "__main__":
@@ -17,7 +17,7 @@ if __name__ == "__main__":
 
     losssubset = "onlygaps"
     splitglobal = True
-    model_name = '{}_{}_{}_splitglobal_{}'.format(modelclass.__name__, losssubset, splitglobal, "5_neigh_sm")
+    model_name = '{}_{}_{}_splitglobal_{}'.format(modelclass.__name__, losssubset, splitglobal, "0_neigh_sm_simple")
 
     # in_path = '/data/USERS/lmoesing/vod_encoder/data/v01_erafrozen_k_{}.nc'.format(temp_resolution)
     in_path = '/data/USERS/lmoesing/vod_encoder/data/STACK_C3S-SOILMOISTURE_v202012_COMBINED_MONTHLY.nc'
@@ -40,7 +40,7 @@ if __name__ == "__main__":
     #     2: 5-neighbourhood = 25 total (use NeighbourLSTMGapFiller)
     #     3: 7-neibourhood = 49 total (use NeighbourLSTMGapFiller)
     #     4: etc....
-    neighbours=5
+    neighbours=0
     # what to fill nans with during training. Im still unsure what the best approach is, but this worked best
     nan_fillvalue= 0.
 
