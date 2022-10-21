@@ -405,8 +405,24 @@ class BaseGapFiller(BaseModel):
 class LSTMGapFiller(BaseGapFiller):
     def __init__(self, dataset,**kwargs):
         super(LSTMGapFiller, self).__init__(dataset, **kwargs)
-        self.lstm_1 = nn.LSTM(input_size=1, hidden_size=4, batch_first=True, bidirectional=True, num_layers=3, dropout=0.5)
-        self.out = nn.Conv1d(8, 1, 1)
+        self.lstm_1 = nn.LSTM(input_size=1, hidden_size=2, batch_first=True, bidirectional=True, num_layers=3, dropout=0.5)
+        self.out = nn.Conv1d(4, 1, 1)
+
+
+    def forward(self, x):
+        x[x != x] = self.nan_fillvalue
+        x1, _ = self.lstm_1(x[:, :, None])
+        x2 = self.out(x1.transpose(1,2))
+
+        x3 = x2.squeeze()
+        return x3
+
+
+class LSTMGapFillerImage(BaseGapFiller):
+    def __init__(self, dataset,**kwargs):
+        super(LSTMGapFillerImage, self).__init__(dataset, **kwargs)
+        self.lstm_1 = nn.LSTM(input_size=1, hidden_size=2, batch_first=True, bidirectional=True, num_layers=3, dropout=0.5)
+        self.out = nn.Conv1d(4, 1, 1)
 
 
     def forward(self, x):
