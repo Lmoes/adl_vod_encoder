@@ -15,7 +15,7 @@ class VodDataset(Dataset):
     """
     VOD dataset loader, also handles writing of encoding
     """
-    def __init__(self, in_path, nonans=False, equalyearsize=False):
+    def __init__(self, in_path, in_path_tp,  nonans=False, equalyearsize=False):
         self.da = xr.open_dataarray(in_path)
         self.da = self.da[(self.da['time.year'] >= 1989) & (self.da['time.year'] < 2017)]
 
@@ -33,6 +33,20 @@ class VodDataset(Dataset):
         self.out_da_list = []
         self.attrs = {}
         self.add_ts(self.data*self.vod_std + self.vod_mean, 'vod_orig')
+
+    def load_temp_data(self, temprecipath):
+        self.tpds = xr.open_dataset(temprecipath)
+        self.temp_mean = self.tpds.temp_mean
+        self.temp_std = self.tpds.temp_std
+        # self.prec_mean = self.tpds.prec_mean
+        # self.prec_std = self.tpds.prec_std
+
+        self.tpds = self.tpds.mean('time')
+        self.tempdata = (self.tpds['stl1'].values[self.tslocs].T - self.temp_mean).astype(np.float32) / self.temp_std
+        # self.precdata = (self.tpds['tp'].values[self.tslocs].T - self.prec_mean).astype(np.float32) / self.prec_std
+
+        self.add_image(self.tempdata * self.temp_std + self.temp_mean, 'temp_orig')
+        # self.add_image(self.precdata* self.prec_std + self.prec_mean, 'prec_orig')
 
     def __getitem__(self, index):
         return (self.data[index], )
@@ -114,7 +128,10 @@ class VodDataset(Dataset):
             predicted vod values
         :return:
         """
-        self.add_ts(predictions, 'vod_reconstructed')
+        self.add_ts(predictions * self.vod_std + self.vod_mean, 'vod_reconstructed')
+
+    def add_tempadjusted_predictions(self, predictions, td):
+        self.add_ts(predictions * self.vod_std + self.vod_mean, 'vod_td_{}'.format(td))
 
     def add_attrs(self, attrs):
         """
@@ -138,7 +155,6 @@ class VodDataset(Dataset):
         ds = xr.merge(self.out_da_list)
         ds.attrs = self.attrs
         ds.to_netcdf(fname)
-
 
 class VodTempPrecDataset(VodDataset):
     """
@@ -169,6 +185,17 @@ class VodTempPrecDataset(VodDataset):
             (vod_predictions, temperature_predictions, precipitation_predictions), each a np.array
         :return:
         """
-        self.add_ts(predictions[0] * self.vod_std + self.vod_mean, 'vod_reconstructed')
-        self.add_image(predictions[1].flatten() * self.temp_std + self.temp_mean, 't_hat')
-        self.add_image(predictions[2].flatten() * self.prec_std + self.prec_mean, 'p_hat')
+        try:
+            self.add_ts(predictions[0] * self.vod_std + self.vod_mean, 'vod_reconstructed')
+            self.add_image(predictions[1].flatten() * self.temp_std + self.temp_mean, 't_hat')
+            self.add_image(predictions[2].flatten() * self.prec_std + self.prec_mean, 'p_hat')
+        except:
+            super(VodTempPrecDataset, self).add_predictions(predictions)
+
+    def add_tempadjusted_predictions(self, predictions, td):
+        try:
+            self.add_ts(predictions[0] * self.vod_std + self.vod_mean, 'vod_td_{}'.format(td))
+            self.add_image(predictions[1].flatten() * self.temp_std + self.temp_mean, 't_hat_{}'.format(td))
+            self.add_image(predictions[2].flatten() * self.prec_std + self.prec_mean, 'p_hat_{}'.format(td))
+        except ValueError:
+            super(VodTempPrecDataset, self).add_tempadjusted_predictions(predictions, td)
