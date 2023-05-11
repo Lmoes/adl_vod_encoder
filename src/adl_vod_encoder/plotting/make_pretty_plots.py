@@ -3,6 +3,8 @@ import xarray as xr
 import matplotlib.pyplot as plt
 from torch import rand, reshape, save, load, from_numpy
 import numpy as np
+from eofs.xarray import Eof
+
 class Plotter(object):
 
     def __init__(self, path_in, metrics_path):
@@ -20,9 +22,12 @@ class Plotter(object):
             pass
 
     def plot_all(self):
+        self.plot_tss()
+        self.plot_clusters()
         self.plot_imgs()
         self.plot_diff_imgs()
         self.plot_metrics()
+
     def plot_imgs(self):
         self.plot_img("vod_orig")
         self.plot_img("vod_reconstructed")
@@ -52,6 +57,9 @@ class Plotter(object):
         self.plot_metric("val_r2")
         self.plot_metric("val_loss")
 
+    def plot_tss(self):
+        petzenkirchen = [48.1464, 15.1559]
+        self.plot_ts(["vod_orig", "vod_reconstructed", "vod_td_2.0"], *petzenkirchen)
     def _get_metric(self, metric):
         try:
             return np.array([x[metric].numpy() for x in self.metrics if metric in x])
@@ -68,9 +76,20 @@ class Plotter(object):
             dpi=300,
             bbox_inches='tight')
         pass
-    def plot_ts(self, vars, lat, lon):
-        raise NotImplementedError
 
+    def nearest_index(self, lat, lon):
+        return np.abs(self.ds.lat - lat).argmin(),  np.abs(self.ds.lon - lon).argmin()
+    def plot_ts(self, vars, lat, lon):
+        lat_idx, lon_idx = self.nearest_index(lat, lon)
+        for var in vars:
+            da = self.ds[var][:, lat_idx, lon_idx]
+            da.plot(label=var)
+        plt.legend()
+        name = "_".join(vars) + "_" + str(lat) + "_" + str(lon)
+        plt.savefig(
+            os.path.join(self.path_out, name + ".png"),
+            dpi=300,
+            bbox_inches='tight')
     def plot_img(self, var, time=None):
         if time is None:
             da = self.ds[var]
@@ -114,3 +133,41 @@ class Plotter(object):
                 bbox_inches='tight')
         else:
             raise NotImplementedError
+
+    def plot_clusters(self):
+        name = "clusters"
+
+        encoding_da = self.ds['encoding']
+        cluster_da = self.ds['cluster_ids']
+        solver = Eof(encoding_da.rename({'latent_variable': 'time'}))
+        eofs = solver.eofs(neofs=3)
+        cluster_id_eofs_mean = eofs.groupby(cluster_da).mean()
+        cluster_id_eofs_mean_standardized = (cluster_id_eofs_mean - cluster_id_eofs_mean.quantile(0.05,
+                                                                                                  'cluster_ids')) / (
+                                                    cluster_id_eofs_mean.quantile(0.95,
+                                                                                  'cluster_ids') - cluster_id_eofs_mean.quantile(
+                                                0.05, 'cluster_ids'))
+        cluster_id_eofs_mean_standardized.values[cluster_id_eofs_mean_standardized.values > 1.] = 1.
+        cluster_id_eofs_mean_standardized.values[cluster_id_eofs_mean_standardized.values < 0.] = 0.
+
+        plt.figure(figsize=(10, 4))
+        cluster_da.plot(levels=range(len(cluster_id_eofs_mean['cluster_ids']) + 1),
+                        colors=[tuple(cluster_id_eofs_mean_standardized.values.T[x]) for x in
+                                range(len(cluster_id_eofs_mean_standardized.T))])
+        plt.ylim([-60, 80])
+        plt.savefig(
+            os.path.join(self.path_out, name + ".png"),
+            dpi=300,
+            bbox_inches='tight')
+
+        name = "eofs"
+
+        eofs_standardized = (eofs - eofs.quantile(0.05, ('lon', 'lat'))) / (
+                eofs.quantile(0.95, ('lon', 'lat')) - eofs.quantile(0.05, ('lon', 'lat')))
+        plt.figure(figsize=(10, 4))
+        eofs_standardized.plot.imshow()
+        plt.ylim([-60, 80])
+        plt.savefig(
+            os.path.join(self.path_out, name + ".png"),
+            dpi=300,
+                    bbox_inches='tight')

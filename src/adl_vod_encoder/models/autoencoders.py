@@ -10,7 +10,7 @@ from src.adl_vod_encoder.models.validation_metrics import normalized_scatter_rat
 from kmeans_pytorch import kmeans
 from sklearn.linear_model import LinearRegression
 from scipy.stats import pearsonr
-from src.adl_vod_encoder.foundation.math import qr_tempadjust, samedirection, adj_r2
+from src.adl_vod_encoder.foundation.orthogonalization import qr_tempadjust, samedirection, adj_r2
 
 class BaseModel(pl.LightningModule):
     """
@@ -23,9 +23,12 @@ class BaseModel(pl.LightningModule):
     https://github.com/PyTorchLightning/deep-learning-project-template/blob/master/project/lit_autoencoder.py
     """
 
-    def __init__(self, dataset, encoding_dim=4, train_size_frac=0.7, batch_size=512, lr=0.001, activation_fun=None):
+    def __init__(self, dataset, encoding_dim=4, train_size_frac=0.7, batch_size=512, lr=0.001, activation_fun=None,
+                 noise=0., dropout=0.):
         super(BaseModel, self).__init__()
         self.lr = lr
+        self.noise = noise
+        self.dropout = dropout
         self.batch_size = batch_size
         if activation_fun is None:
             activation_fun = F.elu
@@ -62,7 +65,9 @@ class BaseModel(pl.LightningModule):
         x = batch[0]
         x = x.to(self.device)
         inputnans = x != x
-        encoding = self(x)
+        h = x + torch.randn_like(x) * self.noise
+        h = F.dropout(h, p=self.dropout)
+        encoding = self(h)
 
         x_hat = self.decoder(encoding)
         loss = F.mse_loss(x_hat[~inputnans], x[~inputnans])
@@ -75,7 +80,7 @@ class BaseModel(pl.LightningModule):
         x, temp, _ = batch
         x = x.to(self.device)
         encoding = self(x).cpu()
-        self.log('val_r2', adj_r2(encoding, temp)[0], on_epoch=True)
+        # self.log('val_r2', adj_r2(encoding, temp)[0], on_epoch=True)
 
     # def validation_step_end(self, *args, **kwargs):
     #     encoding = self.encode_ds(self.dataset_val.dataset)
@@ -206,6 +211,28 @@ class ShallowConvAutoencoder(BaseModel):
         self.decoder = nn.Sequential(
             nn.Linear(encoding_dim, (dataset.sample_dim - conv1_width + 1) * conv1_nfeatures),
             nn.ReLU(),
+            Reshape((-1, conv1_nfeatures, (dataset.sample_dim - conv1_width + 1))),
+            nn.BatchNorm1d(conv1_nfeatures),
+            nn.ConvTranspose1d(conv1_nfeatures, 1, conv1_width),
+            Squeeze()
+        )
+
+class MonthlyShallowConvAutoencoder(BaseModel):
+    def __init__(self, dataset, encoding_dim=4, train_size_frac=0.7, batch_size=512, lr=0.001, activation_fun=None, noise=0., dropout=0.):
+        super(MonthlyShallowConvAutoencoder, self).__init__(dataset, encoding_dim, train_size_frac, batch_size, lr, activation_fun, noise, dropout)
+        conv1_width = 3
+        conv1_nfeatures = 16
+        self.encoder = nn.Sequential(
+            nn.Conv1d(1, conv1_nfeatures, conv1_width, stride=1, padding_mode='circular'),
+            self.activation_fun,
+            nn.BatchNorm1d(conv1_nfeatures),
+            self.activation_fun,
+            nn.Linear((dataset.sample_dim - conv1_width + 1) * conv1_nfeatures, encoding_dim),
+            self.activation_fun
+        )
+        self.decoder = nn.Sequential(
+            nn.Linear(encoding_dim, (dataset.sample_dim - conv1_width + 1) * conv1_nfeatures),
+            self.activation_fun,
             Reshape((-1, conv1_nfeatures, (dataset.sample_dim - conv1_width + 1))),
             nn.BatchNorm1d(conv1_nfeatures),
             nn.ConvTranspose1d(conv1_nfeatures, 1, conv1_width),
@@ -348,6 +375,326 @@ class VeryDeepConvAutoencoder(BaseModel):
         h = self.d_deconv1(h)
         h = h.squeeze()
         return h
+
+
+
+class MonthlyVeryDeepConvAutoencoder(BaseModel):
+    """
+    Convolutional autoencoder. Similar to https://arxiv.org/abs/2002.03624v1
+    """
+
+    def __init__(self, dataset, encoding_dim=4, train_size_frac=0.7, batch_size=512, lr=0.001, activation_fun=None):
+        super(MonthlyVeryDeepConvAutoencoder, self).__init__(dataset, encoding_dim, train_size_frac, batch_size, lr, activation_fun)
+        conv1_width = 3
+        conv2_width = 12
+        conv3_width = 10
+        conv1_nfeatures = 16
+        conv2_nfeatures = 32
+        conv3_nfeatures = 64
+        linear_features = 64
+        self.magic_num = 314
+        # encoder layers
+        self.e_conv1 = nn.Conv1d(1, conv1_nfeatures, conv1_width, stride=1, padding_mode='circular')
+        self.e_batchnorm1 = nn.BatchNorm1d(conv1_nfeatures)
+        self.e_conv2 = nn.Conv1d(conv1_nfeatures, conv2_nfeatures, kernel_size=conv2_width, stride=1)
+        self.e_batchnorm2 = nn.BatchNorm1d(conv2_nfeatures)
+
+        self.e_conv3 = nn.Conv1d(conv2_nfeatures, conv3_nfeatures, kernel_size=conv3_width, stride=1)
+        self.e_batchnorm3 = nn.BatchNorm1d(conv3_nfeatures)
+
+        self.e_linear1 = nn.Linear(conv3_nfeatures * self.magic_num, linear_features)
+        self.e_linear2 = nn.Linear(linear_features, encoding_dim)
+        # decoder layers
+        self.d_linear2 = nn.Linear(encoding_dim, linear_features)
+        self.d_linear1 = nn.Linear(linear_features, conv3_nfeatures * self.magic_num)
+
+        self.d_deconv3 = nn.ConvTranspose1d(conv3_nfeatures, conv2_nfeatures, kernel_size=conv3_width, stride=1)
+        self.d_batchnorm3 = nn.BatchNorm1d(conv2_nfeatures)
+
+        self.d_deconv2 = nn.ConvTranspose1d(conv2_nfeatures, conv1_nfeatures, kernel_size=conv2_width, stride=1)
+        self.d_batchnorm2 = nn.BatchNorm1d(conv1_nfeatures)
+        self.d_deconv1 = nn.ConvTranspose1d(conv1_nfeatures, 1, conv1_width, stride=1, padding_mode='zeros')
+
+    def encoder(self, h):
+        h = h + torch.randn_like(h) * 0.1
+        h = F.dropout(h, p=0.5)
+        h = self.e_conv1(h)
+        h = self.activation_fun(h)
+        h = self.e_batchnorm1(h)
+        h = self.e_conv2(h)
+        h = self.activation_fun(h)
+        h = self.e_batchnorm2(h)
+
+        h = self.e_conv3(h)
+        h = self.activation_fun(h)
+        h = self.e_batchnorm3(h)
+
+        h = h.view(-1, h.shape[1] * self.magic_num)
+        h = self.e_linear1(h)
+        h = self.activation_fun(h)
+        h = self.e_linear2(h)
+        # h = torch.sigmoid(h)
+        h = self.activation_fun(h)
+        h = h.squeeze()
+        return h
+
+    def decoder(self, encoding):
+        h = self.d_linear2(encoding)
+        h = self.activation_fun(h)
+        h = self.d_linear1(h)
+        h = self.activation_fun(h)
+        h = h.view(-1, self.d_deconv3.in_channels, self.magic_num)
+
+        h = self.d_deconv3(h)
+        h = self.d_batchnorm3(h)
+        h = self.activation_fun(h)
+
+        h = self.d_deconv2(h)
+        h = self.d_batchnorm2(h)
+        h = self.activation_fun(h)
+
+        h = self.d_deconv1(h)
+        h = h.squeeze()
+        return h
+
+
+class Monthly4DeepConvAutoencoder(BaseModel):
+    """
+    Convolutional autoencoder. Similar to https://arxiv.org/abs/2002.03624v1
+    """
+
+    def __init__(self, dataset, encoding_dim=4, train_size_frac=0.7, batch_size=512, lr=0.001, activation_fun=None, noise=0,
+                 dropout=0.):
+        super(Monthly4DeepConvAutoencoder, self).__init__(dataset, encoding_dim, train_size_frac, batch_size, lr, activation_fun,
+                                                          noise, dropout)
+        conv1_width = 3
+        conv2_width = 3
+        conv3_width = 6
+        conv4_width = 12
+        conv1_nfeatures = 8
+        conv2_nfeatures = 16
+        conv3_nfeatures = 32
+        conv4_nfeatures = 64
+        linear_features = 64
+        self.magic_num = 316
+        # encoder layers
+        self.e_conv1 = nn.Conv1d(1, conv1_nfeatures, conv1_width, stride=1, padding_mode='circular')
+        self.e_batchnorm1 = nn.BatchNorm1d(conv1_nfeatures)
+
+        self.e_conv2 = nn.Conv1d(conv1_nfeatures, conv2_nfeatures, kernel_size=conv2_width, stride=1)
+        self.e_batchnorm2 = nn.BatchNorm1d(conv2_nfeatures)
+
+        self.e_conv3 = nn.Conv1d(conv2_nfeatures, conv3_nfeatures, kernel_size=conv3_width, stride=1)
+        self.e_batchnorm3 = nn.BatchNorm1d(conv3_nfeatures)
+
+        self.e_conv4 = nn.Conv1d(conv3_nfeatures, conv4_nfeatures, kernel_size=conv4_width, stride=1)
+        self.e_batchnorm4 = nn.BatchNorm1d(conv4_nfeatures)
+
+        self.e_linear1 = nn.Linear(conv4_nfeatures * self.magic_num, encoding_dim)
+        # self.e_linear2 = nn.Linear(linear_features, encoding_dim)
+
+
+        # decoder layers
+        # self.d_linear2 = nn.Linear(encoding_dim, linear_features)
+        self.d_linear1 = nn.Linear(encoding_dim, conv4_nfeatures * self.magic_num)
+
+        self.d_deconv4 = nn.ConvTranspose1d(conv4_nfeatures, conv3_nfeatures, kernel_size=conv4_width, stride=1,  padding_mode='zeros')
+        self.d_batchnorm4 = nn.BatchNorm1d(conv3_nfeatures)
+
+        self.d_deconv3 = nn.ConvTranspose1d(conv3_nfeatures, conv2_nfeatures, kernel_size=conv3_width, stride=1,  padding_mode='zeros')
+        self.d_batchnorm3 = nn.BatchNorm1d(conv2_nfeatures)
+
+        self.d_deconv2 = nn.ConvTranspose1d(conv2_nfeatures, conv1_nfeatures, kernel_size=conv2_width, stride=1)
+        self.d_batchnorm2 = nn.BatchNorm1d(conv1_nfeatures)
+        self.d_deconv1 = nn.ConvTranspose1d(conv1_nfeatures, 1, conv1_width, stride=1, padding_mode="zeros")
+
+    def encoder(self, h):
+        # print(h.shape)
+        # # h = h + torch.randn_like(h) * 0.3
+        # h = F.dropout(h, p=0.1)
+        h = self.e_conv1(h)
+        # print(h.shape)
+        h = self.activation_fun(h)
+        h = self.e_batchnorm1(h)
+        h = self.e_conv2(h)
+        # print(h.shape)
+        h = self.activation_fun(h)
+        h = self.e_batchnorm2(h)
+
+        h = self.e_conv3(h)
+        # print(h.shape)
+        h = self.activation_fun(h)
+        h = self.e_batchnorm3(h)
+
+        h = self.e_conv4(h)
+        # print(h.shape)
+        h = self.activation_fun(h)
+        h = self.e_batchnorm4(h)
+
+        h = h.view(-1, h.shape[1] * self.magic_num)
+        h = self.e_linear1(h)
+        # h = self.activation_fun(h)
+        # h = self.e_linear2(h)
+        # h = torch.sigmoid(h)
+        h = self.activation_fun(h)
+        h = h.squeeze()
+        return h
+
+    def decoder(self, encoding):
+        # h = self.d_linear2(encoding)
+        # h = self.activation_fun(h)
+        h = self.d_linear1(encoding)
+        h = self.activation_fun(h)
+        h = h.view(-1, self.d_deconv4.in_channels, self.magic_num)
+
+        h = self.d_deconv4(h)
+        h = self.d_batchnorm4(h)
+        h = self.activation_fun(h)
+
+        h = self.d_deconv3(h)
+        h = self.d_batchnorm3(h)
+        h = self.activation_fun(h)
+
+        h = self.d_deconv2(h)
+        h = self.d_batchnorm2(h)
+        h = self.activation_fun(h)
+
+        h = self.d_deconv1(h)
+        h = h.squeeze()
+        return h
+class MontlyLstmAutencoder(BaseModel):
+    def __init__(self, dataset, encoding_dim=4, train_size_frac=0.7, batch_size=512, lr=0.001, activation_fun=None, noise=0,
+                 dropout=0.):
+        super(MontlyLstmAutencoder, self).__init__(dataset, encoding_dim, train_size_frac, batch_size, lr, activation_fun,
+                                                          noise, dropout)
+        # self.magic_num = 314
+        self.num_layers = 3
+        hidden_size=4
+        self.e_lstm_1 = nn.LSTM(input_size=1, hidden_size=hidden_size, batch_first=True, bidirectional=True, num_layers=self.num_layers, dropout=0.1)
+        # self.e_linear2 = nn.Linear(self.num_layers*2*hidden_size, encoding_dim)
+        # self.d_linear2 = nn.Linear(encoding_dim, self.num_layers*2*hidden_size)
+        self.d_lstm_1 = nn.LSTM(input_size=1, hidden_size=hidden_size, batch_first=True, bidirectional=True, num_layers=self.num_layers, dropout=0.1)
+
+        self.out = nn.Conv1d(8, 1, 1)
+
+        conv1_width = 3
+        conv2_width = 3
+        conv3_width = 6
+        conv4_width = 12
+        conv1_nfeatures = 8
+        conv2_nfeatures = 16
+        conv3_nfeatures = 32
+        conv4_nfeatures = 64
+        linear_features = 64
+        self.magic_num = 316
+        # encoder layers
+        self.e_conv1 = nn.Conv1d(8, conv1_nfeatures, conv1_width, stride=1)
+        self.e_batchnorm1 = nn.BatchNorm1d(conv1_nfeatures)
+
+        self.e_conv2 = nn.Conv1d(conv1_nfeatures, conv2_nfeatures, kernel_size=conv2_width, stride=1)
+        self.e_batchnorm2 = nn.BatchNorm1d(conv2_nfeatures)
+
+        self.e_conv3 = nn.Conv1d(conv2_nfeatures, conv3_nfeatures, kernel_size=conv3_width, stride=1)
+        self.e_batchnorm3 = nn.BatchNorm1d(conv3_nfeatures)
+
+        self.e_conv4 = nn.Conv1d(conv3_nfeatures, conv4_nfeatures, kernel_size=conv4_width, stride=1)
+        self.e_batchnorm4 = nn.BatchNorm1d(conv4_nfeatures)
+
+        self.e_linear1 = nn.Linear(conv4_nfeatures * self.magic_num, encoding_dim)
+        # self.e_linear2 = nn.Linear(linear_features, encoding_dim)
+
+
+        # decoder layers
+        # self.d_linear2 = nn.Linear(encoding_dim, linear_features)
+        self.d_linear1 = nn.Linear(encoding_dim, conv4_nfeatures * self.magic_num)
+
+        self.d_deconv4 = nn.ConvTranspose1d(conv4_nfeatures, conv3_nfeatures, kernel_size=conv4_width, stride=1,  padding_mode='zeros')
+        self.d_batchnorm4 = nn.BatchNorm1d(conv3_nfeatures)
+
+        self.d_deconv3 = nn.ConvTranspose1d(conv3_nfeatures, conv2_nfeatures, kernel_size=conv3_width, stride=1,  padding_mode='zeros')
+        self.d_batchnorm3 = nn.BatchNorm1d(conv2_nfeatures)
+
+        self.d_deconv2 = nn.ConvTranspose1d(conv2_nfeatures, conv1_nfeatures, kernel_size=conv2_width, stride=1)
+        self.d_batchnorm2 = nn.BatchNorm1d(conv1_nfeatures)
+        self.d_deconv1 = nn.ConvTranspose1d(conv1_nfeatures, 1, conv1_width, stride=1, padding_mode="zeros")
+
+    def encoder(self, ts):
+        h, (_, _) = self.e_lstm_1(ts.transpose(1,2))
+        h = self.activation_fun(h)
+        h = self.e_conv1(h.transpose(1,2))
+
+        h = self.activation_fun(h)
+        h = self.e_batchnorm1(h)
+        h = self.e_conv2(h)
+        # print(h.shape)
+        h = self.activation_fun(h)
+        h = self.e_batchnorm2(h)
+
+        h = self.e_conv3(h)
+        # print(h.shape)
+        h = self.activation_fun(h)
+        h = self.e_batchnorm3(h)
+
+        h = self.e_conv4(h)
+        # print(h.shape)
+        h = self.activation_fun(h)
+        h = self.e_batchnorm4(h)
+
+        h = h.view(-1, h.shape[1] * self.magic_num)
+        h = self.e_linear1(h)
+        h = self.activation_fun(h)
+        h = h.squeeze()
+        return h
+
+    def decoder(self, encoding):
+        # h = self.d_linear2(encoding)
+        # h = self.activation_fun(h)
+        h = self.d_linear1(encoding)
+        h = self.activation_fun(h)
+        h = h.view(-1, self.d_deconv4.in_channels, self.magic_num)
+
+        h = self.d_deconv4(h)
+        h = self.d_batchnorm4(h)
+        h = self.activation_fun(h)
+
+        h = self.d_deconv3(h)
+        h = self.d_batchnorm3(h)
+        h = self.activation_fun(h)
+
+        h = self.d_deconv2(h)
+        h = self.d_batchnorm2(h)
+        h = self.activation_fun(h)
+
+        h = self.d_deconv1(h)
+
+        h, (_, _) = self.d_lstm_1(h.transpose(1, 2))
+        # h = h.squeeze()
+        #
+        # h = self.d_linear2(encoding)
+        # h = self.activation_fun(h)
+        # n_samples = self.dataset_train.dataset.sample_dim
+        # h = h.view(-1, 1, self.num_layers*2*4).repeat(1,n_samples,1)
+        # h, (_, _) = self.d_lstm_1(h)
+        h = self.out(h.transpose(1,2)).squeeze()
+        return h
+
+    # def forward(self, x):
+    #     x[x != x] = 0.
+    #     encoding = self.encoder(x[:, None])
+    #     return encoding
+    #
+    # def training_step(self, batch, batch_nb):
+    #     x = batch[0]
+    #     x = x.to(self.device)
+    #     inputnans = x != x
+    #     h = x + torch.randn_like(x) * self.noise
+    #     h = F.dropout(h, p=self.dropout)
+    #     encoding = self(h)
+    #
+    #     x_hat = self.decoder(encoding)
+    #     loss = F.mse_loss(x_hat[~inputnans], x[~inputnans])
+    #     return loss
+
 
 class BaseTempPrecAutoencoder(BaseModel):
     """

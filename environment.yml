@@ -1,9 +1,9 @@
-name: adl_vod_encoder_nov2
+name: adl_vod_encoder_nov4
 channels:
   - defaults
 #  - anaconda
-  - conda-forge
-  - pytorch
+#  - conda-forge
+#  - pytorch
 dependencies:
   - python
   - numpy
@@ -11,19 +11,23 @@ dependencies:
   - matplotlib
   - scipy
   - xarray
-  - dask
-  - pytorch
+#  - dask
+#  - pytorch
 #  - torchvision
 #  - torchaudio
-  - pytorch-cuda
-  - pytorch-lightning
-  - setuptools=59.5.0
-  - torchvision
+#  - pytorch-cuda::nvidia
+#  - pytorch-lightning
+#  - setuptools=59.5.0
+  - setuptools
   - pip
   - pip:
+      - torch
+      - torchvision
+      - torchaudio
+      - pytorch-lightning
       - scikit-learn
       - smecv_grid
       - SimpleCRF
       - kmeans-pytorch
-      - pynetcf
+#      - pynetcf
       - eofs

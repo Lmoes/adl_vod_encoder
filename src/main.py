@@ -3,12 +3,13 @@ Main script to train the model and create encodings
 """
 
 import os
-from torch import rand, reshape, save, load, from_numpy, tanh
+from torch import rand, reshape, save, load, from_numpy, tanh, nn
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping
 from src.adl_vod_encoder.data_io.vod_data_loaders import VodTempPrecDataset, VodDataset
 from src.adl_vod_encoder.models.autoencoders import DeepConvTempPrecAutoencoder, \
-    ShallowConvAutoencoder, BaseModel, BaseTempPrecAutoencoder, DeepConvAutoencoder, VeryDeepConvAutoencoder
+    ShallowConvAutoencoder, BaseModel, BaseTempPrecAutoencoder, DeepConvAutoencoder, VeryDeepConvAutoencoder,\
+    MonthlyShallowConvAutoencoder, MonthlyVeryDeepConvAutoencoder, MontlyLstmAutencoder, Monthly4DeepConvAutoencoder
 from src.adl_vod_encoder.plotting.make_pretty_plots import Plotter
 from copy import deepcopy
 
@@ -21,23 +22,26 @@ class MetricsCallback(pl.Callback):
 
     def on_validation_end(self, trainer, pl_module):
         self.metrics.append(deepcopy(trainer.callback_metrics))
+        print(self.metrics[-1])
 
 
 if __name__ == "__main__":
 
     ## settings
-    train = True
-    create_nc = True
+    train = False
+    create_nc = False
     create_plots = True
     encoding_size = 32
-    activation_fun = tanh
+    activation_fun = nn.ReLU()
     num_clusters = 32
+    noise=0.
+    dropout=0.
     device = ["cpu", 'cuda:0'][1]
 
-    temp_resolution = 'weekly'
-    model_class = DeepConvAutoencoder
-    suffix = "nobatchnorm"
-    model_name = "{}_e{}_{}_{}".format(model_class.__name__, encoding_size, activation_fun.__name__, suffix)
+    temp_resolution = 'monthly'
+    model_class = Monthly4DeepConvAutoencoder
+    suffix = "2"
+    model_name = "{}_e{}_{}_n{}_d{}_{}".format(model_class.__name__, encoding_size, "tanh", noise, dropout, suffix)
 
     in_path = '/data/USERS/lmoesing/vod_encoder/data/v01_erafrozen_k_{}.nc'.format(temp_resolution)
     in_path_tp = '/data/USERS/lmoesing/vod_encoder/data/era5mean.nc'
@@ -55,15 +59,14 @@ if __name__ == "__main__":
         # load ds and model
         ds = VodTempPrecDataset(in_path, in_path_tp, equalyearsize=False)
         # ds.load_temp_data(in_path_tp)
-        model = model_class(ds, encoding_size, batch_size=8192, activation_fun=activation_fun)
+        model = model_class(ds, encoding_size, batch_size=8192, activation_fun=activation_fun, noise=noise, dropout=dropout)
 
     if train:
         # train model
         model = model.to(device)
-        early_stop_callback = EarlyStopping(monitor='val_loss', min_delta=0.00, patience=2, verbose=True, mode='auto')
+        early_stop_callback = EarlyStopping(monitor='val_loss', min_delta=0.00, patience=1, verbose=True, mode='min')
         mcb = MetricsCallback()
-        trainer = pl.Trainer(max_epochs=100, min_epochs=10, auto_lr_find=False, auto_scale_batch_size=False,
-                             progress_bar_refresh_rate=10,
+        trainer = pl.Trainer(max_epochs=50, min_epochs=2,
                              callbacks=[early_stop_callback, mcb]
                              )
         trainer.fit(model)
@@ -81,13 +84,11 @@ if __name__ == "__main__":
         encodings = model.encode_ds(ds)
         ds.add_encodings(encodings)
 
-        td=1.
-        pred_adj = model.predict_td_effect(ds, td=td)
-        ds.add_tempadjusted_predictions(pred_adj, td)
+        for x in [1., 2., 3]:
+            td = x
+            pred_adj = model.predict_td_effect(ds, td=td)
+            ds.add_tempadjusted_predictions(pred_adj, td)
 
-        td=2.
-        pred_adj = model.predict_td_effect(ds, td=td)
-        ds.add_tempadjusted_predictions(pred_adj, td)
 
         predictions = model.predict_ds(ds)
         ds.add_predictions(predictions)
