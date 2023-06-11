@@ -1,4 +1,4 @@
-name: adl_vod_encoder_nov4
+name: adl_vod_encoder_nov5
 channels:
   - defaults
 #  - anaconda
@@ -11,7 +11,7 @@ dependencies:
   - matplotlib
   - scipy
   - xarray
-#  - dask
+  - dask
 #  - pytorch
 #  - torchvision
 #  - torchaudio

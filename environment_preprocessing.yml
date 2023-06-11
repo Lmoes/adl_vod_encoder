@@ -1,0 +1,14 @@
+name: adl_vod_encoder_preprocessing
+channels:
+  - defaults
+#  - anaconda
+#  - conda-forge
+#  - pytorch
+dependencies:
+  - python
+  - pandas
+  - numpy
+  - xarray
+  - dask
+  - netcdf4
+  - scipy

@@ -130,8 +130,8 @@ class VodDataset(Dataset):
         """
         self.add_ts(predictions * self.vod_std + self.vod_mean, 'vod_reconstructed')
 
-    def add_tempadjusted_predictions(self, predictions, td):
-        self.add_ts(predictions * self.vod_std + self.vod_mean, 'vod_td_{}'.format(td))
+    def add_tempadjusted_predictions(self, predictions, td, dp):
+        self.add_ts(predictions * self.vod_std + self.vod_mean, 'vod_td_{}_dp_{}'.format(td, dp))
 
     def add_attrs(self, attrs):
         """
@@ -155,6 +155,8 @@ class VodDataset(Dataset):
         ds = xr.merge(self.out_da_list)
         ds.attrs = self.attrs
         ds.to_netcdf(fname)
+
+
 
 class VodTempPrecDataset(VodDataset):
     """
@@ -199,3 +201,20 @@ class VodTempPrecDataset(VodDataset):
             self.add_image(predictions[2].flatten() * self.prec_std + self.prec_mean, 'p_hat_{}'.format(td))
         except ValueError:
             super(VodTempPrecDataset, self).add_tempadjusted_predictions(predictions, td)
+
+class VODTempPrecFullTsDataset(VodDataset):
+    def __init__(self, in_path, temprecipath, nonans=False, equalyearsize=False):
+        super(VODTempPrecFullTsDataset, self).__init__(in_path, nonans, equalyearsize)
+
+        self.tpds = xr.open_dataset(temprecipath)
+        self.tpds = self.tpds.sel(time=self.da.time)
+        self.temp_mean = self.tpds.temp_mean
+        self.temp_std = self.tpds.temp_std
+        self.prec_mean = self.tpds.prec_mean
+        self.prec_std = self.tpds.prec_std
+
+        self.tempdata = (self.tpds['stl1'].values[:, self.tslocs].T.astype(np.float32) - self.temp_mean) / self.temp_std
+        self.precdata = (self.tpds['tp'].values[:, self.tslocs].T.astype(np.float32) - self.prec_mean) / self.prec_std
+
+    def __getitem__(self, index):
+        return self.data[index], self.tempdata[index], self.precdata[index]

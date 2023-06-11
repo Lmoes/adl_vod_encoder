@@ -36,8 +36,10 @@ class Plotter(object):
 
     def plot_diff_imgs(self):
         self.plot_diff_img("vod_reconstructed", "vod_orig")
-        self.plot_diff_img("vod_td_1.0", "vod_reconstructed")
-        self.plot_diff_img("vod_td_2.0", "vod_reconstructed")
+        self.plot_diff_img("vod_td_1.0_dp_1.0", "vod_reconstructed")
+        self.plot_diff_img("vod_td_2.0_dp_1.0", "vod_reconstructed")
+        self.plot_diff_img("vod_td_0.0_dp_0.8", "vod_reconstructed")
+        self.plot_diff_img("vod_td_0.0_dp_1.2", "vod_reconstructed")
 
         try:
             self.plot_diff_img("t_hat", "temp_orig")
@@ -59,7 +61,9 @@ class Plotter(object):
 
     def plot_tss(self):
         petzenkirchen = [48.1464, 15.1559]
-        self.plot_ts(["vod_orig", "vod_reconstructed", "vod_td_2.0"], *petzenkirchen)
+        self.plot_ts(["vod_orig", "vod_reconstructed", "vod_td_2.0_dp_1.0"], *petzenkirchen)
+        self.plot_ts(["vod_orig", "vod_reconstructed", "vod_td_0.0_dp_0.8"], *petzenkirchen)
+        self.plot_ts(["vod_orig", "vod_reconstructed", "vod_td_0.0_dp_1.2"], *petzenkirchen)
     def _get_metric(self, metric):
         try:
             return np.array([x[metric].numpy() for x in self.metrics if metric in x])
@@ -90,6 +94,7 @@ class Plotter(object):
             os.path.join(self.path_out, name + ".png"),
             dpi=300,
             bbox_inches='tight')
+        plt.close()
     def plot_img(self, var, time=None):
         if time is None:
             da = self.ds[var]
@@ -171,3 +176,19 @@ class Plotter(object):
             os.path.join(self.path_out, name + ".png"),
             dpi=300,
                     bbox_inches='tight')
+
+
+class RegressionPlotter(Plotter):
+    def plot_all(self):
+        self.plot_tss()
+        self.plot_imgs()
+        self.plot_diff_imgs()
+        self.plot_metrics()
+
+    def plot_imgs(self):
+        self.plot_img("vod_orig")
+        self.plot_img("vod_reconstructed")
+        self.plot_img("vod_td_1.0_dp_1.0")
+        self.plot_img("vod_td_2.0_dp_1.0")
+        self.plot_img("vod_td_0.0_dp_0.8")
+        self.plot_img("vod_td_0.0_dp_1.2")
